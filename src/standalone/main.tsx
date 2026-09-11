@@ -5,7 +5,10 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Compass, LayerPanel, MapDraw, MapView, mapCommands, useMapUiStore } from '../index'
+import {
+  Compass, LayerPanel, MapDraw, MapView, MAP_OPTIONS, mapCommands,
+  preloadEstimate, preloadWorldTiles, useMapUiStore,
+} from '../index'
 import type { MapData } from '../core/types'
 import { DEMO_BASEMAPS, DEMO_SNAPSHOT } from './demo-data'
 import './standalone.css'
@@ -38,6 +41,22 @@ const App: React.FC = () => {
   const toggleClearMode = useMapUiStore((s) => s.toggleClearMode)
 
   const [drawn, setDrawn] = React.useState(false)
+
+  // 全球低精度"地板层"预热：独立宿主里手动触发，按钮文字即进度（341 张 ≈ 0.3 s）
+  const [warm, setWarm] = React.useState<{ running: boolean; done: number; total: number; ms: number } | null>(null)
+  const warmup = () => {
+    const template = config.basemap.tileUrlTemplate
+    if (!template) { setWarm({ running: false, done: 0, total: 0, ms: 0 }); return }
+    const maxZoom = MAP_OPTIONS.preloadMaxZoom
+    const { total } = preloadEstimate(maxZoom)
+    setWarm({ running: true, done: 0, total, ms: 0 })
+    void preloadWorldTiles({
+      template,
+      maxZoom,
+      concurrency: MAP_OPTIONS.preloadConcurrency,
+      onProgress: (p) => setWarm({ running: true, done: p.done, total: p.total, ms: 0 }),
+    }).then((r) => setWarm({ running: false, done: r.ok, total: r.total, ms: r.ms }))
+  }
 
   // 等地图就绪后载入示例图元（不依赖后端数据）
   React.useEffect(() => {
@@ -72,6 +91,13 @@ const App: React.FC = () => {
 
             <button style={barButton} onClick={() => { MapDraw.load(DEMO_SNAPSHOT); setDrawn(true) }}>
               载入示例图元
+            </button>
+            <button style={barButton} onClick={warmup} disabled={warm?.running}>
+              {warm
+                ? (warm.running
+                    ? `预热中 ${warm.done}/${warm.total}`
+                    : `预热完成 ${warm.done}/${warm.total} · ${warm.ms} ms`)
+                : `预热全球底图 z0–${MAP_OPTIONS.preloadMaxZoom}`}
             </button>
             <button style={barButton} onClick={() => { MapDraw.clear(); setDrawn(false) }}>
               清空图元

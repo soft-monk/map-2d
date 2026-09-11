@@ -75,7 +75,9 @@ map-2d/
 | `useMapUiStore()` | 模块 UI 状态：`clearMode / activeTool / layersOpen / hiddenGroups / viewport / displayMode` |
 | `LAYER_GROUPS` / `LAYER_GROUP_LABELS` | 图层分组清单与中文名 |
 | `displayModeOf(scenarioKey, phase)` | 按场景 + 阶段取显示模式名 |
-| `MAP_OPTIONS` | 模块开关（`showAttribution` 等） |
+| `preloadWorldTiles(opts)` | **全球低精度"地板层"预热**：把 z0–maxZoom 整层灌进浏览器缓存，带 `onProgress` / `signal`（见第五节） |
+| `tileUrlAt(template,z,x,y)` / `worldTileList(z)` / `tilesAtZoom(z)` / `preloadEstimate(z)` | 预热配套工具（拼 URL / 列瓦片 / 数量与体积估算） |
+| `MAP_OPTIONS` | 模块开关（`showAttribution` / `rasterFadeDuration` / `preloadMaxZoom` / `preloadConcurrency`） |
 | `mapInstance` | MapLibre 实例（高级用法） |
 
 ---
@@ -119,7 +121,41 @@ MapDraw.load(snap)                // 整体导入
 
 ---
 
-## 五、嵌入到主系统
+## 五、全球低精度"地板层"预热（消除低缩放拖拽的空白）
+
+MapLibre 只加载**视口内**的瓦片，视口之外是"可加载"而不是"已加载"——所以缩小后大幅拖拽，
+新区域会短暂露出缺口底色。模块提供一个**纯函数**把全球低精度层一次性装进浏览器缓存
+（不依赖地图实例，宿主可在启动页调用）：
+
+```ts
+import { MAP_OPTIONS, preloadWorldTiles, preloadEstimate } from '@map2d'
+
+const { total } = preloadEstimate(MAP_OPTIONS.preloadMaxZoom)   // z0–4 → 341 张
+
+const r = await preloadWorldTiles({
+  template: '/tiles/raster/{z}/{x}/{y}.jpg',   // 与 basemap.tileUrlTemplate 同源
+  maxZoom: MAP_OPTIONS.preloadMaxZoom,         // 默认 4（341 张 / 2.7 MB / 局域网 ≈ 0.3 s）
+  concurrency: MAP_OPTIONS.preloadConcurrency, // 默认 8
+  onProgress: (p) => setPercent(5 + 90 * p.ratio),   // 接进度条
+  // signal: abortController.signal,           // 可选：允许"跳过预热"直接进入
+})
+// r = { total, done, ok, failed, bytes, ratio, aborted, ms, concurrency, failedUrls }
+```
+
+要点（改之前先看 `src/core/preload.ts` 顶部注释）：
+
+- **只能用 `fetch()`**：`new Image()` 的预载只进图片缓存，MapLibre 之后命中不了，等于白预热
+- **预热 ≠ 已解码**：字节进了缓存，首次真正绘制时仍要解码 + 上传纹理（毫秒级）；
+  效果是"拖过去立刻有内容"，不是"零开销"
+- **单个失败不中断**：重试 1 次后计入 `failed` 继续；有 `signal` 时可随时取消
+- **为什么是 z4**：z0–4 覆盖"缩小后拖拽"的全部场景（同级别父瓦片兜底即为地板层本身）；
+  再加一层体积 ×4、收益很小。要更厚就把 `MAP_OPTIONS.preloadMaxZoom` 改成 5/6
+- **与高清层无关**：只预热低层级瓦片，不动任何图层可见性与业务数据
+- 配合后端 `/tiles/**` 的 `Cache-Control: immutable`，第二次开图整层命中磁盘缓存（实测 0.16 s）
+
+---
+
+## 六、嵌入到主系统
 
 主系统（`frontend/`）通过别名消费，代码里看不到 MapLibre 细节：
 
@@ -151,7 +187,7 @@ interface MapData {
 
 ---
 
-## 六、交付给别人 / 独立子仓
+## 七、交付给别人 / 独立子仓
 
 **方式一：整包拷贝**（最简单）
 把 `map-2d/` 整个目录拷走 → `npm install` → `npm run dev` 即可运行；嵌入时按第五节配一个别名。
@@ -170,7 +206,7 @@ scripts\publish-map2d.bat <repo-url>   :: 或推送到指定仓库
 
 ---
 
-## 七、约束与备注
+## 八、约束与备注
 
 - **仅二维**：`dragRotate / maxPitch` 锁定为平面；三维能力（地形/建筑/2D-3D 切换）已按 v1.2 范围收敛放弃
 - **版权署名**：`src/core/options.ts` 的 `showAttribution` 控制是否显示底图署名（当前默认隐藏，
@@ -181,4 +217,6 @@ scripts\publish-map2d.bat <repo-url>   :: 或推送到指定仓库
   两个栅格层 `raster-fade-duration` 取 `MAP_OPTIONS.rasterFadeDuration`（默认 `0`＝不做淡入），
   低清→高清为瞬时替换。宿主瓦片只有高清层级时，把 `UNDERLAY_MAX_ZOOM` 调低或删掉叠底层即可
 - **源码交付**：本模块以源码形式交付，未发布 npm 包（`package.json` 中 `private: true`）
+- **依赖后端可选项**：若宿主后端给 `/tiles/**` 加了 `Cache-Control: immutable`，预热层与高清层
+  在第二次开图时会整层命中磁盘缓存（实测 341 张从 0.38 s 降到 0.16 s）；不加也能工作
 - 无左侧导航、无底部状态栏——独立宿主只保留"地图 + 地图相关控件"，符合"干净的二维绘制模块"定位

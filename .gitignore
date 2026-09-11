@@ -1,0 +1,6 @@
+# 依赖与产物
+node_modules/
+dist/
+
+# 底图数据：自己解压 Release 瓦片包到这里即可离线出图；体积大，不入库
+tiles/

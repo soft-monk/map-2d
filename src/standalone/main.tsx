@@ -42,12 +42,21 @@ const App: React.FC = () => {
 
   const [drawn, setDrawn] = React.useState(false)
 
-  // 全球低精度"地板层"预热：独立宿主里手动触发，按钮文字即进度（341 张 ≈ 0.3 s）
+  // 全球低精度"地板层"预热（见 core/preload.ts）
+  //   ① 进入页面后自动跑一次（可被 MAP_OPTIONS.preloadOnEnter 关掉）
+  //   ② 按钮可手动重跑 / 换底图后重跑；按钮文字即进度（341 张 ≈ 0.3 s）
+  // 关键：template 用的是**相对路径**（`/tiles/...`），与地图请求同 origin —— HTTP 缓存按
+  // origin 分桶，预热与地图必须同源，否则白白灌一遍另一只桶。在线底图（styleUrl）没有本地
+  // 瓦片模板，此时跳过预热。
   const [warm, setWarm] = React.useState<{ running: boolean; done: number; total: number; ms: number } | null>(null)
-  const warmup = () => {
+  const warmRef = React.useRef(false)
+
+  const warmup = React.useCallback(() => {
     const template = config.basemap.tileUrlTemplate
-    if (!template) { setWarm({ running: false, done: 0, total: 0, ms: 0 }); return }
+    if (!template || warmRef.current) return
     const maxZoom = MAP_OPTIONS.preloadMaxZoom
+    if (maxZoom <= 0) return
+    warmRef.current = true
     const { total } = preloadEstimate(maxZoom)
     setWarm({ running: true, done: 0, total, ms: 0 })
     void preloadWorldTiles({
@@ -55,8 +64,17 @@ const App: React.FC = () => {
       maxZoom,
       concurrency: MAP_OPTIONS.preloadConcurrency,
       onProgress: (p) => setWarm({ running: true, done: p.done, total: p.total, ms: 0 }),
-    }).then((r) => setWarm({ running: false, done: r.ok, total: r.total, ms: r.ms }))
-  }
+    })
+      .then((r) => setWarm({ running: false, done: r.ok, total: r.total, ms: r.ms }))
+      .finally(() => { warmRef.current = false })
+  }, [config])
+
+  // 自动预热：等地图首屏瓦片先抢到连接，再灌地板层
+  React.useEffect(() => {
+    if (!MAP_OPTIONS.preloadOnEnter) return
+    const timer = window.setTimeout(warmup, MAP_OPTIONS.preloadAutoDelayMs)
+    return () => window.clearTimeout(timer)
+  }, [warmup])
 
   // 等地图就绪后载入示例图元（不依赖后端数据）
   React.useEffect(() => {

@@ -3,6 +3,9 @@
 一个**可独立运行、可整包交付**的二维地图模块：MapLibre 渲染 + **API 驱动绘制**（无人机 / 区域 / 目标 / 链路 / 轨迹 / 扫描 / 标注…）。
 主系统「智能任务管理系统」通过别名 `@map2d` 消费它——**用法与调用第三方库一致**；本目录也可单独 clone、单独启动。
 
+> 模块自身的需求与设计文档在 [`doc/`](./doc/)：
+> [需求文档](./doc/需求文档.md)（做什么 / 不做什么 / 现状，编号 `M2-xx`）· [设计文档](./doc/设计文档.md)（怎么做 / 为什么这么做 / 边界）
+
 ---
 
 ## 一、独立运行（一条命令看到地图）
@@ -40,6 +43,10 @@ npm run dev          :: → http://localhost:5180/
 map-2d/
 ├─ index.html                 # 独立宿主页面
 ├─ package.json / tsconfig.json / vite.config.ts
+├─ doc/                       # ★ 模块自身文档（只讲本模块）
+│  ├─ README.md               #   文档索引 + 与主仓文档的分工
+│  ├─ 需求文档.md             #   模块做什么 / 不做什么 / 现状（M2-xx）
+│  └─ 设计文档.md             #   怎么做：分层、渲染管线、绘制 API、决策与边界
 ├─ src/
 │  ├─ index.ts                # ★ 唯一公开入口（嵌入方只从此处导入）
 │  ├─ core/
@@ -53,7 +60,7 @@ map-2d/
 │  ├─ render/LayerManager.ts  # 底层图层与 source 管理（含图层分组显隐）
 │  ├─ ui/                     # MapView / MapToolbar / LayerPanel / Compass
 │  └─ standalone/             # 独立宿主入口 + 示例数据 + 独立样式
-└─ README.md                  # 本文档
+└─ README.md                  # 本文档（快速上手 + 公开 API）
 ```
 
 **依赖规则**：只依赖 `maplibre-gl` / `react` / `zustand`；**不依赖**主系统的 store、面板、组件库或后端。

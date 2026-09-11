@@ -29,7 +29,7 @@ npm run dev          :: → http://localhost:5180/
 
 | 选项 | 说明 |
 |---|---|
-| 本地瓦片 | `/tiles/raster/{z}/{x}/{y}.jpg`（由主系统 C++ 后端托管；独立运行时若没有该路径会回落深色纯底） |
+| 本地瓦片 | `/tiles/raster/{z}/{x}/{y}.jpg`（由主系统 C++ 后端托管；独立运行时若没有该路径会露深色缺口底） |
 | 在线样式 | MapLibre demotiles / OpenFreeMap Liberty / CARTO 深色（`basemap.styleUrl`，需能上外网） |
 
 ---
@@ -175,5 +175,10 @@ scripts\publish-map2d.bat <repo-url>   :: 或推送到指定仓库
 - **仅二维**：`dragRotate / maxPitch` 锁定为平面；三维能力（地形/建筑/2D-3D 切换）已按 v1.2 范围收敛放弃
 - **版权署名**：`src/core/options.ts` 的 `showAttribution` 控制是否显示底图署名（当前默认隐藏，
   合规责任由使用方承担；改回 `true` 即恢复）
+- **底图三层结构与"不露黑框"**：`ui/MapView.tsx` 的 `rasterStyle()` 自下而上为
+  `bg`（缺口底色，深蓝灰 `#16283a`）→ `base-underlay`（低清叠底，同一瓦片模板但 `maxzoom: 6`，
+  z0–6 全球瓦片常驻，快速拖动时任何新区域先有低清影像）→ `base`（高清瓦片 z0–14）。
+  两个栅格层 `raster-fade-duration` 取 `MAP_OPTIONS.rasterFadeDuration`（默认 `0`＝不做淡入），
+  低清→高清为瞬时替换。宿主瓦片只有高清层级时，把 `UNDERLAY_MAX_ZOOM` 调低或删掉叠底层即可
 - **源码交付**：本模块以源码形式交付，未发布 npm 包（`package.json` 中 `private: true`）
 - 无左侧导航、无底部状态栏——独立宿主只保留"地图 + 地图相关控件"，符合"干净的二维绘制模块"定位

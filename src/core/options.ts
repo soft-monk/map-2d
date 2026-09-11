@@ -11,6 +11,13 @@ export const MAP_OPTIONS = {
 
   /** 显示署名时的紧凑模式（鼠标悬停展开完整署名） */
   compactAttribution: true,
+
+  /**
+   * 栅格瓦片淡入时长（毫秒）。
+   * 0 = 关闭淡入：瓦片下载完成即刻显示，拖动时"低清叠底 → 高清"的替换是瞬时的，
+   * 不会在中途露出底色（黑框）。需要老版本的柔和淡入效果时改回 300 即可。
+   */
+  rasterFadeDuration: 0,
 }
 
 export type MapOptions = typeof MAP_OPTIONS

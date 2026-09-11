@@ -13,32 +13,77 @@ import { MAP_OPTIONS } from '../core/options'
 import { useMapUiStore } from '../core/store'
 import type { MapConfigData, MapData } from '../core/types'
 
-/** 无瓦片时的兜底样式：深色纯底，保证任何环境都能演示 */
+// 视口内暂无任何瓦片时的底色（兜底样式 / 底图尚未出现的第一帧）。
+// 取深蓝灰而非近黑：即使出现也会被当成"地面"，不会形成刺眼黑框。
+const VOID_BG = '#08111f'
+
+// 底图缺口处的"地面"色。瓦片尚未到达时先露出它，视觉上接近压暗后的影像，
+// 避免近黑背景在暗色影像上形成一块明显的黑框。
+const GAP_BG = '#16283a'
+
+// 底图瓦片可用到的最大级别；低清全球底图只取到 UNDERLAY_MAX_ZOOM。
+const BASE_MAX_ZOOM = 14
+const UNDERLAY_MAX_ZOOM = 6
+
+/** 无瓦片时的兜底样式：纯底，保证任何环境都能打开 */
 function fallbackStyle(): maplibregl.StyleSpecification {
   return {
     version: 8,
     sources: {},
-    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': '#08111f' } }],
+    layers: [{ id: 'bg', type: 'background', paint: { 'background-color': VOID_BG } }],
   }
 }
 
+/**
+ * 本地栅格底图样式。
+ *
+ * 防"滑动时露出未加载黑框"的三层结构（自下而上）：
+ *   1. bg         —— 缺口底色（深蓝灰，非黑）
+ *   2. base-underlay —— 同一瓦片源的低清叠底（只请求 z0–6，全球覆盖）。
+ *                       瓦片是四叉树，MapLibre 在 z7+ 时本就会用 z6 父瓦片兜底；
+ *                       把 z0–6 常驻成独立图层后，快速拖动时任何新区域都是有图的，
+ *                       高清瓦片到达后再无缝替换。
+ *   3. base       —— 高清瓦片（z0–14），压暗 + 去饱和的深色指挥风格。
+ * 另：两个栅格图层的 raster-fade-duration = MAP_OPTIONS.rasterFadeDuration（默认 0），
+ * 瓦片到达即显示、不做淡入，因此"低清叠底 → 高清"的替换是瞬时的，
+ * 不会在过渡期露出一层半透明的底色。
+ */
 function rasterStyle(tileUrl: string, attribution: string): maplibregl.StyleSpecification {
+  // 署名是否交给 MapLibre 由 MAP_OPTIONS.showAttribution 决定：
+  // 关闭时不写入 source.attribution，避免控件隐藏但样式里仍残留署名文本。
+  const attrib = MAP_OPTIONS.showAttribution ? { attribution } : {}
   return {
     version: 8,
     sources: {
-      // 署名是否交给 MapLibre 由 MAP_OPTIONS.showAttribution 决定：
-      // 关闭时不写入 source.attribution，避免控件隐藏但样式里仍残留署名文本。
       base: {
         type: 'raster',
         tiles: [tileUrl],
         tileSize: 256,
-        maxzoom: 14,
-        ...(MAP_OPTIONS.showAttribution ? { attribution } : {}),
+        maxzoom: BASE_MAX_ZOOM,
+        ...attrib,
+      },
+      // 同一 URL 模板：z0–6 请求的就是全球低清瓦片，z7+ 的显示由父瓦片放大提供
+      'base-underlay': {
+        type: 'raster',
+        tiles: [tileUrl],
+        tileSize: 256,
+        maxzoom: UNDERLAY_MAX_ZOOM,
       },
     },
     layers: [
-      { id: 'bg', type: 'background', paint: { 'background-color': '#050d18' } },
-      // 卫星影像 → 压暗 + 去饱和，做成指挥中心深色风格。
+      { id: 'bg', type: 'background', paint: { 'background-color': GAP_BG } },
+      // 低清叠底：只做轻微压暗去饱和，尽量亮一点 → 高清未到时看起来是"低清影像"而不是"黑框"
+      {
+        id: 'base-underlay',
+        type: 'raster',
+        source: 'base-underlay',
+        paint: {
+          'raster-opacity': 0.9,
+          'raster-saturation': -0.35,
+          'raster-brightness-max': 0.8,
+          'raster-fade-duration': MAP_OPTIONS.rasterFadeDuration,
+        },
+      },
       // 注意：MapLibre raster 只支持 raster-* 属性，不要写 'background-tint'。
       {
         id: 'base',
@@ -50,9 +95,11 @@ function rasterStyle(tileUrl: string, attribution: string): maplibregl.StyleSpec
           'raster-contrast': 0.16,
           'raster-brightness-min': 0.03,
           'raster-brightness-max': 0.62,
+          'raster-fade-duration': MAP_OPTIONS.rasterFadeDuration,
         },
       },
-      { id: 'base-tint', type: 'background', paint: { 'background-color': 'rgba(6, 26, 52, 0.30)' } },
+      // 统一色调（只作用于高清层，叠底保持较亮，缺口才不会被越描越黑）
+      { id: 'base-tint', type: 'background', paint: { 'background-color': 'rgba(6, 26, 52, 0.16)' } },
     ],
   }
 }
@@ -92,6 +139,9 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
       maxZoom: cfg?.maxZoom ?? 16,
       // 版权署名开关见 options.ts（默认隐藏；合规责任由使用方承担）
       attributionControl: MAP_OPTIONS.showAttribution ? { compact: MAP_OPTIONS.compactAttribution } : false,
+      // 瓦片不做淡入：由样式里各栅格图层的 raster-fade-duration = 0 控制（见 MAP_OPTIONS）
+      // preserveDrawingBuffer：允许把画布内容导出为图片（截图/汇报取图）
+      preserveDrawingBuffer: true,
       dragRotate: false,      // 仅二维：禁旋转（指北针因此恒指正北）
       pitchWithRotate: false,
       touchPitch: false,

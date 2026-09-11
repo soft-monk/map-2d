@@ -1,0 +1,39 @@
+/* map-2d 独立宿主：深色基础样式（与主系统观感一致，但不依赖主系统样式表） */
+:root {
+  --bg-0: #050a14;
+  --text-1: #cfe3f5;
+  --text-2: #8fb0cc;
+  --cyan: #22d3ee;
+  --panel-border: #1d3a5c;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  margin: 0;
+  height: 100%;
+  background: var(--bg-0);
+  color: var(--text-1);
+  font-family: "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+}
+
+/* 地图暗角（与主系统一致的指挥中心观感） */
+.map-vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(0, 0, 0, 0) 55%, rgba(0, 0, 0, .45) 100%);
+}
+
+/* MapLibre 控件配色（深色化） */
+.maplibregl-ctrl-group {
+  background: rgba(10, 20, 36, .8) !important;
+  border: 1px solid var(--panel-border) !important;
+}
+.maplibregl-ctrl-group button + button { border-top: 1px solid var(--panel-border) !important; }
+.maplibregl-ctrl-group button span { filter: invert(1) hue-rotate(180deg); }
+.maplibregl-ctrl-scale {
+  background: rgba(10, 20, 36, .7) !important;
+  border-color: var(--panel-border) !important;
+  color: var(--text-1) !important;
+}

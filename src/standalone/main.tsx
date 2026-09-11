@@ -5,10 +5,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import {
-  Compass, LayerPanel, MapDraw, MapView, MAP_OPTIONS, mapCommands,
-  preloadEstimate, preloadWorldTiles, useMapUiStore,
-} from '../index'
+import { Compass, LayerPanel, MapDraw, MapView, mapCommands, useMapUiStore } from '../index'
 import type { MapData } from '../core/types'
 import { DEMO_BASEMAPS, DEMO_SNAPSHOT } from './demo-data'
 import './standalone.css'
@@ -41,40 +38,6 @@ const App: React.FC = () => {
   const toggleClearMode = useMapUiStore((s) => s.toggleClearMode)
 
   const [drawn, setDrawn] = React.useState(false)
-
-  // 全球低精度"地板层"预热（见 core/preload.ts）
-  //   ① 进入页面后自动跑一次（可被 MAP_OPTIONS.preloadOnEnter 关掉）
-  //   ② 按钮可手动重跑 / 换底图后重跑；按钮文字即进度（341 张 ≈ 0.3 s）
-  // 关键：template 用的是**相对路径**（`/tiles/...`），与地图请求同 origin —— HTTP 缓存按
-  // origin 分桶，预热与地图必须同源，否则白白灌一遍另一只桶。在线底图（styleUrl）没有本地
-  // 瓦片模板，此时跳过预热。
-  const [warm, setWarm] = React.useState<{ running: boolean; done: number; total: number; ms: number } | null>(null)
-  const warmRef = React.useRef(false)
-
-  const warmup = React.useCallback(() => {
-    const template = config.basemap.tileUrlTemplate
-    if (!template || warmRef.current) return
-    const maxZoom = MAP_OPTIONS.preloadMaxZoom
-    if (maxZoom <= 0) return
-    warmRef.current = true
-    const { total } = preloadEstimate(maxZoom)
-    setWarm({ running: true, done: 0, total, ms: 0 })
-    void preloadWorldTiles({
-      template,
-      maxZoom,
-      concurrency: MAP_OPTIONS.preloadConcurrency,
-      onProgress: (p) => setWarm({ running: true, done: p.done, total: p.total, ms: 0 }),
-    })
-      .then((r) => setWarm({ running: false, done: r.ok, total: r.total, ms: r.ms }))
-      .finally(() => { warmRef.current = false })
-  }, [config])
-
-  // 自动预热：等地图首屏瓦片先抢到连接，再灌地板层
-  React.useEffect(() => {
-    if (!MAP_OPTIONS.preloadOnEnter) return
-    const timer = window.setTimeout(warmup, MAP_OPTIONS.preloadAutoDelayMs)
-    return () => window.clearTimeout(timer)
-  }, [warmup])
 
   // 等地图就绪后载入示例图元（不依赖后端数据）
   React.useEffect(() => {
@@ -109,13 +72,6 @@ const App: React.FC = () => {
 
             <button style={barButton} onClick={() => { MapDraw.load(DEMO_SNAPSHOT); setDrawn(true) }}>
               载入示例图元
-            </button>
-            <button style={barButton} onClick={warmup} disabled={warm?.running}>
-              {warm
-                ? (warm.running
-                    ? `预热中 ${warm.done}/${warm.total}`
-                    : `预热完成 ${warm.done}/${warm.total} · ${warm.ms} ms`)
-                : `预热全球底图 z0–${MAP_OPTIONS.preloadMaxZoom}`}
             </button>
             <button style={barButton} onClick={() => { MapDraw.clear(); setDrawn(false) }}>
               清空图元

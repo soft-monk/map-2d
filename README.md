@@ -75,9 +75,7 @@ map-2d/
 | `useMapUiStore()` | 模块 UI 状态：`clearMode / activeTool / layersOpen / hiddenGroups / viewport / displayMode` |
 | `LAYER_GROUPS` / `LAYER_GROUP_LABELS` | 图层分组清单与中文名 |
 | `displayModeOf(scenarioKey, phase)` | 按场景 + 阶段取显示模式名 |
-| `preloadWorldTiles(opts)` | **全球低精度"地板层"预热**：把 z0–maxZoom 整层灌进浏览器缓存，带 `onProgress` / `signal`（见第五节） |
-| `tileUrlAt(template,z,x,y)` / `worldTileList(z)` / `tilesAtZoom(z)` / `preloadEstimate(z)` | 预热配套工具（拼 URL / 列瓦片 / 数量与体积估算） |
-| `MAP_OPTIONS` | 模块开关（`showAttribution` / `rasterFadeDuration` / `preloadMaxZoom` / `preloadConcurrency` / `preloadOnEnter` / `preloadAutoDelayMs`） |
+| `MAP_OPTIONS` | 模块开关（`showAttribution` 等） |
 | `mapInstance` | MapLibre 实例（高级用法） |
 
 ---
@@ -121,55 +119,7 @@ MapDraw.load(snap)                // 整体导入
 
 ---
 
-## 五、全球低精度"地板层"预热（消除低缩放拖拽的空白）
-
-MapLibre 只加载**视口内**的瓦片，视口之外是"可加载"而不是"已加载"——所以缩小后大幅拖拽，
-新区域会短暂露出缺口底色。模块提供一个**纯函数**把全球低精度层一次性装进浏览器缓存
-（不依赖地图实例，宿主可在启动页调用）：
-
-```ts
-import { MAP_OPTIONS, preloadWorldTiles, preloadEstimate } from '@map2d'
-
-const { total } = preloadEstimate(MAP_OPTIONS.preloadMaxZoom)   // z0–5 → 1,365 张
-
-const r = await preloadWorldTiles({
-  template: '/tiles/raster/{z}/{x}/{y}.jpg',   // 与 basemap.tileUrlTemplate 同源（相对路径）
-  maxZoom: MAP_OPTIONS.preloadMaxZoom,         // 默认 5（1365 张 / 10.8 MB / 局域网 ≈ 0.5–0.9 s）
-  concurrency: MAP_OPTIONS.preloadConcurrency, // 默认 8
-  onProgress: (p) => setPercent(5 + 90 * p.ratio),   // 接进度条
-  // signal: abortController.signal,           // 可选：允许"跳过预热"直接进入
-})
-// r = { total, done, ok, failed, bytes, ratio, aborted, ms, concurrency, failedUrls }
-```
-
-宿主侧接入方式（两种，按需要选）：
-
-| 宿主 | 做法 |
-|---|---|
-| 主系统（启动页有进度条） | 在启动流程里显式 `await preloadWorldTiles(...)`，把 `onProgress.ratio` 映射到进度条 |
-| 独立宿主 / 无启动页 | 不动代码：`MAP_OPTIONS.preloadOnEnter`（默认 `true`）会在进入地图后自动预热一次，`preloadAutoDelayMs` 控制延后多久（默认 1200 ms，先让地图首屏瓦片抢到连接） |
-
-要点（改之前先看 `src/core/preload.ts` 顶部注释）：
-
-- **只能用 `fetch()`**：`new Image()` 的预载只进图片缓存，MapLibre 之后命中不了，等于白预热
-- **预热 ≠ 已解码**：字节进了缓存，首次真正绘制时仍要解码 + 上传纹理（毫秒级）；
-  效果是"拖过去立刻有内容"，不是"零开销"
-- **单个失败不中断**：重试 1 次后计入 `failed` 继续；有 `signal` 时可随时取消
-- **为什么是 z5**：同一套"缩到最小 + 来回拖"动作实测——z0–4 会出现 9 帧整屏底色
-  （最长 331 ms，缩小过程中经过 z5 那一档时没有地板层）；z0–5 为 0 帧；z0–6 与 z5 同为 0 帧
-  但多 27 MB。z5 即拐点
-- **必须同 origin**：HTTP 缓存按 (协议+主机+端口) 分桶，预热与地图请求要用同一个相对路径；
-  `127.0.0.1:8080` 与 `localhost:8080` 在浏览器眼里是两个桶，各灌一遍才不会互相浪费
-- **底图源的 `maxzoom` 也压到地板层深度**（见 `ui/MapView.tsx` 的 `rasterStyle()`）：
-  这样缩放时 MapLibre 用"低清瓦片放大"顶住，而不是逐级去拉新金字塔层。
-  实测同一套"缩到最小 + 来回拖"：`maxzoom: 14` 会出现 245 ms 整屏底色，压到 5 后为 33 ms，
-  叠加预热后为 **0 帧**。代价是"覆盖区外的更细层级"不再自动出现——本来也没有那些瓦片数据
-- **与高清层无关**：只预热低层级瓦片，不动任何图层可见性与业务数据
-- 配合后端 `/tiles/**` 的 `Cache-Control: immutable`，第二次开图整层命中磁盘缓存
-
----
-
-## 六、嵌入到主系统
+## 五、嵌入到主系统
 
 主系统（`frontend/`）通过别名消费，代码里看不到 MapLibre 细节：
 
@@ -201,7 +151,7 @@ interface MapData {
 
 ---
 
-## 七、交付给别人 / 独立子仓
+## 六、交付给别人 / 独立子仓
 
 **方式一：整包拷贝**（最简单）
 把 `map-2d/` 整个目录拷走 → `npm install` → `npm run dev` 即可运行；嵌入时按第五节配一个别名。
@@ -220,17 +170,15 @@ scripts\publish-map2d.bat <repo-url>   :: 或推送到指定仓库
 
 ---
 
-## 八、约束与备注
+## 七、约束与备注
 
 - **仅二维**：`dragRotate / maxPitch` 锁定为平面；三维能力（地形/建筑/2D-3D 切换）已按 v1.2 范围收敛放弃
 - **版权署名**：`src/core/options.ts` 的 `showAttribution` 控制是否显示底图署名（当前默认隐藏，
   合规责任由使用方承担；改回 `true` 即恢复）
-- **底图两层结构与"不露空白"**：`ui/MapView.tsx` 的 `rasterStyle()` 自下而上为
-  `bg`（缺口底色，深蓝灰 `#16283a`）→ `base-underlay`（低清地板层）→ `base`（同一层，压暗去饱和）。
-  两个栅格源的 `maxzoom` **都取 `MAP_OPTIONS.preloadMaxZoom`**：这一条是"缩放到最小不露蓝底"的关键——
-  压到地板层后 MapLibre 用低清瓦片放大顶住，不再逐级拉新金字塔层。
-  两个栅格层 `raster-fade-duration` 取 `MAP_OPTIONS.rasterFadeDuration`（默认 `0`＝不做淡入）
+- **底图三层结构与"不露黑框"**：`ui/MapView.tsx` 的 `rasterStyle()` 自下而上为
+  `bg`（缺口底色，深蓝灰 `#16283a`）→ `base-underlay`（低清叠底，同一瓦片模板但 `maxzoom: 6`，
+  z0–6 全球瓦片常驻，快速拖动时任何新区域先有低清影像）→ `base`（高清瓦片 z0–14）。
+  两个栅格层 `raster-fade-duration` 取 `MAP_OPTIONS.rasterFadeDuration`（默认 `0`＝不做淡入），
+  低清→高清为瞬时替换。宿主瓦片只有高清层级时，把 `UNDERLAY_MAX_ZOOM` 调低或删掉叠底层即可
 - **源码交付**：本模块以源码形式交付，未发布 npm 包（`package.json` 中 `private: true`）
-- **依赖后端可选项**：若宿主后端给 `/tiles/**` 加了 `Cache-Control: immutable`，预热层与高清层
-  在第二次开图时会整层命中磁盘缓存；不加也能工作（只是每次开图重灌一遍）
 - 无左侧导航、无底部状态栏——独立宿主只保留"地图 + 地图相关控件"，符合"干净的二维绘制模块"定位

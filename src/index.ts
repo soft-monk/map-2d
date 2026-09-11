@@ -19,10 +19,6 @@ export type { MapOptions } from './core/options'
 export { mapInstance } from './core/instance'
 export { mapCommands } from './core/commands'
 
-// 全球低精度"地板层"预热（宿主可在启动页调用并联动进度条）
-export { preloadWorldTiles, tileUrlAt, worldTileList, tilesAtZoom, preloadEstimate } from './core/preload'
-export type { PreloadOptions, PreloadProgress, PreloadResult } from './core/preload'
-
 // 绘制 API（图元驱动渲染：无人机/区域/目标/链路/轨迹/扫描/脉冲/标注…）
 export { MapDraw } from './primitives/api'
 export type {

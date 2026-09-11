@@ -21,12 +21,9 @@ const VOID_BG = '#08111f'
 // 避免近黑背景在暗色影像上形成一块明显的黑框。
 const GAP_BG = '#16283a'
 
-// 高清瓦片可用到的最大级别
+// 底图瓦片可用到的最大级别；低清全球底图只取到 UNDERLAY_MAX_ZOOM。
 const BASE_MAX_ZOOM = 14
-
-/** 1×1 透明 PNG：低清源在没有瓦片模板（在线样式底图）时用它占位，保持图层结构稳定 */
-const BLANK_PIXEL =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=='
+const UNDERLAY_MAX_ZOOM = 6
 
 /** 无瓦片时的兜底样式：纯底，保证任何环境都能打开 */
 function fallbackStyle(): maplibregl.StyleSpecification {
@@ -38,41 +35,44 @@ function fallbackStyle(): maplibregl.StyleSpecification {
 }
 
 /**
- * 底图样式选择：本地栅格瓦片 / 在线样式 / 纯色兜底。
+ * 本地栅格底图样式。
  *
- * 本地栅格的"低清地板层"深度取 `MAP_OPTIONS.preloadMaxZoom`（默认 5，配合启动预热）。
+ * 防"滑动时露出未加载黑框"的三层结构（自下而上）：
+ *   1. bg         —— 缺口底色（深蓝灰，非黑）
+ *   2. base-underlay —— 同一瓦片源的低清叠底（只请求 z0–6，全球覆盖）。
+ *                       瓦片是四叉树，MapLibre 在 z7+ 时本就会用 z6 父瓦片兜底；
+ *                       把 z0–6 常驻成独立图层后，快速拖动时任何新区域都是有图的，
+ *                       高清瓦片到达后再无缝替换。
+ *   3. base       —— 高清瓦片（z0–14），压暗 + 去饱和的深色指挥风格。
+ * 另：两个栅格图层的 raster-fade-duration = MAP_OPTIONS.rasterFadeDuration（默认 0），
+ * 瓦片到达即显示、不做淡入，因此"低清叠底 → 高清"的替换是瞬时的，
+ * 不会在过渡期露出一层半透明的底色。
  */
 function rasterStyle(tileUrl: string, attribution: string): maplibregl.StyleSpecification {
-  const floorZoom = clampFloorZoom(MAP_OPTIONS.preloadMaxZoom)
   // 署名是否交给 MapLibre 由 MAP_OPTIONS.showAttribution 决定：
   // 关闭时不写入 source.attribution，避免控件隐藏但样式里仍残留署名文本。
   const attrib = MAP_OPTIONS.showAttribution ? { attribution } : {}
-  // 地板层与高清层用同一个瓦片模板；两者只需一层就够时（floorZoom 触顶）不重复请求。
-  const twoTier = floorZoom < BASE_MAX_ZOOM
   return {
     version: 8,
     sources: {
-      // 高清层：maxzoom 压到地板层深度——**缩放时不再逐级拉新金字塔层**，而是由 MapLibre
-      // 把地板层的瓦片放大顶住（overzoom）。实测：逐级拉层会出现 245 ms 的整屏底色，压到
-      // 地板层后降到 33 ms（同一套"缩到最小 + 来回拖"动作）。
       base: {
         type: 'raster',
         tiles: [tileUrl],
         tileSize: 256,
-        maxzoom: floorZoom,
+        maxzoom: BASE_MAX_ZOOM,
         ...attrib,
       },
+      // 同一 URL 模板：z0–6 请求的就是全球低清瓦片，z7+ 的显示由父瓦片放大提供
       'base-underlay': {
         type: 'raster',
-        tiles: twoTier ? [tileUrl] : [],
+        tiles: [tileUrl],
         tileSize: 256,
-        maxzoom: floorZoom,
-        ...(twoTier ? {} : { url: BLANK_PIXEL }),
+        maxzoom: UNDERLAY_MAX_ZOOM,
       },
     },
     layers: [
       { id: 'bg', type: 'background', paint: { 'background-color': GAP_BG } },
-      // 低清地板层：全球覆盖、启动时整层预热，任何时刻都有内容垫底
+      // 低清叠底：只做轻微压暗去饱和，尽量亮一点 → 高清未到时看起来是"低清影像"而不是"黑框"
       {
         id: 'base-underlay',
         type: 'raster',
@@ -98,17 +98,10 @@ function rasterStyle(tileUrl: string, attribution: string): maplibregl.StyleSpec
           'raster-fade-duration': MAP_OPTIONS.rasterFadeDuration,
         },
       },
-      // 统一色调（只作用于上层，地板层保持较亮，缺口才不会被越描越黑）
+      // 统一色调（只作用于高清层，叠底保持较亮，缺口才不会被越描越黑）
       { id: 'base-tint', type: 'background', paint: { 'background-color': 'rgba(6, 26, 52, 0.16)' } },
     ],
   }
-}
-
-/** 地板层深度：0/负数（关闭预热）时退化为 1，避免出现 maxzoom 为 0 的畸形源 */
-function clampFloorZoom(v: number): number {
-  const z = Math.round(v)
-  if (!Number.isFinite(z) || z <= 0) return 1
-  return Math.min(z, BASE_MAX_ZOOM)
 }
 
 const DEFAULT_CENTER: [number, number] = [116.3974, 39.9093]

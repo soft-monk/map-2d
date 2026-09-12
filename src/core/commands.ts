@@ -18,6 +18,11 @@ import {
   type ViewState, type RestoreOptions, type ExportImageOptions,
 } from './viewState'
 import { renderTiming } from './diagnostics'
+import {
+  loadReplay, clearReplay, play, pause, toggle, setSpeed, seek, seekProgress, step,
+  setFollow, status, onReplayChange,
+  type ReplayData, type ReplayStatus,
+} from './replay'
 import type { MapConfigData, MapViewport } from './types'
 
 export const mapCommands = {
@@ -160,6 +165,59 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 回放（M2-DRAW-17 / 18、M2-API-16）
+  /** 加载（或替换）回放数据：宿主提供带时间戳的轨迹，模块负责时间轴与渲染 */
+  loadReplay(data: ReplayData) {
+    return loadReplay(data)
+  },
+
+  /** 清空回放数据并停止播放（地图恢复为"无回放"状态） */
+  clearReplay() {
+    clearReplay()
+  },
+
+  /** 播放 / 暂停（播到末尾后再播放会从头开始） */
+  playReplay() {
+    return play()
+  },
+  pauseReplay() {
+    return pause()
+  },
+  toggleReplay() {
+    return toggle()
+  },
+
+  /** 设置倍速（0.25–16，自动夹取） */
+  setReplaySpeed(mult: number) {
+    return setSpeed(mult)
+  },
+
+  /** 定位到指定时刻（毫秒时间戳）或按进度（0–1） */
+  seekReplay(t: number) {
+    return seek(t)
+  },
+  seekReplayProgress(p: number) {
+    return seekProgress(p)
+  },
+  /** 步进到相邻采样点（dir: 1 下一个 / -1 上一个） */
+  stepReplay(dir: 1 | -1) {
+    return step(dir)
+  },
+  /** 自动跟随开关 */
+  setReplayFollow(on: boolean) {
+    return setFollow(on)
+  },
+
+  /** 读取回放状态（是否加载/播放中/倍速/当前时刻/范围/进度/各对象位置） */
+  getReplayStatus(): ReplayStatus {
+    return status()
+  },
+
+  /** 订阅回放状态变化（播放中每帧回调；宿主可据此联动业务面板） */
+  onReplayChange(fn: (s: ReplayStatus) => void) {
+    return onReplayChange(fn)
   },
 
   // ------------------------------------------------------------ 视图状态与导出（M2-API-08 / M2-API-09）

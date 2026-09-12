@@ -5,17 +5,17 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Compass, CoordReadout, DrawLayer, LayerPanel, Legend, MapDraw, MapView, basemaps, mapCommands, useMapUiStore } from '../index'
+import { Compass, CoordReadout, DrawLayer, LayerPanel, Legend, MapDraw, MapView, ReplayBar, basemaps, mapCommands, useMapUiStore } from '../index'
 import type { BasemapDef } from '../index'
 import type { MapData } from '../core/types'
-import { DEMO_BASEMAPS, DEMO_BASEMAP_DEFS, DEMO_SNAPSHOT } from './demo-data'
+import { DEMO_BASEMAPS, DEMO_BASEMAP_DEFS, DEMO_REPLAY, DEMO_SNAPSHOT } from './demo-data'
 import { Acceptance } from './acceptance'
 import { useInteraction } from '../index'
 import './standalone.css'
 
 const BASE_DATA: Omit<MapData, 'config'> = {
   scenarioKey: 'demo',
-  // 演示用 T4：此时阶段规则允许"目标 / 无人机 / 扫描 / 脉冲 / 链路 / 区域 / 航线"同时可见，
+  // 演示用 T4（无人机/目标/扫描等均可见；回放演示也需要）：阶段规则允许"目标 / 无人机 / 扫描 / 脉冲 / 链路 / 区域 / 航线"同时可见，
   // 才能一次看全 11 类图元。T0–T2 按阶段规则不显示目标与无人机（这是设计如此，不是缺陷）。
   phase: 'T4',
   targets: [],
@@ -149,6 +149,17 @@ const App: React.FC = () => {
               }}
             >恢复视角</button>
 
+            <button
+              style={barButton}
+              title="载入 60 秒回放数据（模块给时间轴，数据由宿主提供）—— M2-DRAW-17/18"
+              onClick={() => { mapCommands.loadReplay(DEMO_REPLAY); mapCommands.playReplay() }}
+            >载入回放</button>
+            <button
+              style={barButton}
+              title="清空回放数据并停止播放 —— M2-DRAW-18"
+              onClick={() => mapCommands.clearReplay()}
+            >清除回放</button>
+
             {/* 绘制与量算（M2-DRAW-08 / M2-CTRL-10）：与工具条同一套能力，这里做成按钮组 */}
             <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 6 }}>绘制：</span>
             {DRAW_BUTTONS.map(([mode, label, hint]) => (
@@ -193,6 +204,8 @@ const App: React.FC = () => {
         <Legend />
         {/* 交互层：手绘 / 编辑 / 量算 */}
         <DrawLayer />
+        {/* 回放时间轴：加载了回放数据才显示 */}
+        <ReplayBar />
         {/* 功能验收台：已完成能力做成可点按钮，待完成项只读展示（需求完成情况一览） */}
         {!clearMode && <Acceptance />}
       </MapView>

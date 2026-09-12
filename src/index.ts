@@ -14,6 +14,13 @@ export { CoordReadout } from './ui/CoordReadout'
 export { Legend, DEFAULT_LEGEND } from './ui/Legend'
 // 交互层：手绘 / 图元编辑 / 量算（M2-DRAW-08/12/14、M2-CTRL-10）
 export { DrawLayer } from './ui/DrawLayer'
+// 回放：模块给时间轴与播放控制，数据与存储由宿主提供（M2-DRAW-17/18、M2-API-16）
+export { ReplayBar, replayStatus } from './ui/ReplayBar'
+export {
+  useReplay, loadReplay, clearReplay, play, pause, toggle, setSpeed, seek, seekProgress,
+  step, setFollow, status as replayStatusValue, onReplayChange, sampleAt, sampleAll,
+} from './core/replay'
+export type { ReplayData, ReplayTrack, ReplaySample, ReplayState, ReplayStatus } from './core/replay'
 export { useInteraction, isDrawing, DEFAULT_KIND } from './core/interaction'
 export type { DrawMode, DrawKind, Measurement, EditTarget } from './core/interaction'
 export {

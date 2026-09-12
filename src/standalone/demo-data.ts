@@ -165,6 +165,48 @@ export const DEMO_SNAPSHOT: DrawSnapshot = {
   ],
 }
 
+// ---------------------------------------------------------------- 回放演示数据
+//
+// 演示"模块给时间轴、宿主给数据"的分工：这里造两条 60 秒的轨迹（一条盘旋侦察、一条直线突防），
+// 采样间隔 1 秒。真实场景里这份数据由宿主从自己的存储/接口取来后交给 loadReplay()。
+const REPLAY_START = Date.UTC(2026, 8, 12, 2, 0, 0)
+
+export const DEMO_REPLAY: import('../index').ReplayData = {
+  id: 'demo-60s',
+  tracks: [
+    {
+      id: 'UAV-01', label: '无人机 01 · 盘旋侦察', kind: 'drone', color: '#22d3ee',
+      samples: Array.from({ length: 61 }, (_, i) => {
+        const a = (i / 60) * Math.PI * 2          // 一圈 60 秒
+        return {
+          t: REPLAY_START + i * 1000,
+          lng: 116.3974 + Math.cos(a) * 0.045,
+          lat: 39.9093 + Math.sin(a) * 0.035,
+        }
+      }),
+    },
+    {
+      id: 'UAV-02', label: '无人机 02 · 直线突防', kind: 'drone', color: '#f59e0b',
+      samples: Array.from({ length: 61 }, (_, i) => {
+        const k = i / 60
+        return {
+          t: REPLAY_START + i * 1000,
+          lng: 116.320 + k * 0.140,
+          lat: 39.860 + k * 0.100,
+        }
+      }),
+    },
+    {
+      id: 'TGT-01', label: '目标 001', kind: 'target', color: '#ef4444',
+      samples: Array.from({ length: 31 }, (_, i) => ({
+        t: REPLAY_START + 15000 + i * 1500,        // 15 秒后才出现，验证"范围外不显示"
+        lng: 116.470 - i * 0.002,
+        lat: 39.930 + i * 0.0008,
+      })),
+    },
+  ],
+}
+
 // ---------------------------------------------------------------- 验收台清单
 //
 // 用途：`npm run dev` 打开的演示页右侧"功能验收台"用这两份清单渲染。

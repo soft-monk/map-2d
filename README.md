@@ -206,7 +206,7 @@ npm run dev
 | **多套底图切换** | 本地影像/路网/地形等多套底图可枚举、可切换（**整幅替换**），切换后视角与图元保持并向宿主发通知 | `basemaps.list() / switch('road') / onChange(cb)` |
 | **图元点击/悬停回调** | 回调只带图元身份（kind+id），点空白不触发 | `MapDraw.on` → 见接口文档 §10.6 |
 | **运行指标与错误上报** | 帧率/图元数/瓦片缓存/提交耗时；脏数据只跳过该条并上报 | `runtimeStats()`、`onPrimitiveError(cb)` |
-| **无人机航线** | 折线航线，可按图元切换实线/虚线（oute 类型） | `MapDraw.add('route', { id, points, dashed })` |
+| **无人机航线** | 折线航线，可按图元切换实线/虚线（oute 类型） | `MapDraw.add('route', { id, points, dashed })` |
 | **圆形 / 椭圆 / 目标区域** | 半径按公里表达；椭圆可给短半轴与方位角；目标区/搜索区有内置配色 | `MapDraw.add('shape', { id, lng, lat, radiusKm, kind })` |
 | **地图内图例** | 威胁等级/目标状态/链路状态/图元类型四组，内容取自真实配色来源 | `<Legend />` 或 `mapCommands.toggleControl('legend')` |
 | **图层排序与分组透明度** | 调整分组叠放次序；设分组整体透明度（保留图元自身透明度语义） | `mapCommands.moveLayerGroup(...)`、`setLayerGroupOpacity(...)` |

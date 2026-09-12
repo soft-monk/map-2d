@@ -204,6 +204,14 @@ export const Acceptance: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
         say(`脏数据被跳过并上报 ${errs.length} 条 → ${errs.join('；')}`)
         break
       }
+      case '列出地图实例': {
+        const list = mapCommands.listMapInstances()
+        say(`已登记 ${list.length} 个实例：` + list.map((i) => `${i.id}${i.isActive ? '(当前)' : ''}${i.ready ? '' : '(未就绪)'}`).join('、'))
+        break
+      }
+      case '多实例说明':
+        say('双实例隔离验证页：http://localhost:5180/dual.html —— A 动相机 B 不变、数据源各自独立（见需求文档 M2-NFR-08 的实测记录）')
+        break
       case '导出视图状态': {
         void mapCommands.exportViewState().then((s) => {
           savedStateRef.current = s

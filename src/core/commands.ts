@@ -19,6 +19,10 @@ import {
 } from './viewState'
 import { renderTiming } from './diagnostics'
 import {
+  listMapInstances, activeInstanceId, setActiveInstance, getMapInstance,
+  type MapInstanceInfo,
+} from './instanceRegistry'
+import {
   runBenchmark, checkRegression, getPerfBudget, setPerfBudget, getBaseline, setBaseline, adoptBaselineFrom,
   type PerfBudget, type BaselineEntry, type RegressionResult, type BenchRow,
 } from './perfBaseline'
@@ -191,6 +195,24 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 多实例（M2-NFR-08）
+  /** 已登记的地图实例清单（id / 是否当前 / 图层是否就绪） */
+  listMapInstances() {
+    return listMapInstances()
+  },
+  /** 当前实例 id（模块级操作作用在它上面） */
+  activeInstanceId() {
+    return activeInstanceId()
+  },
+  /** 切换当前实例：之后绘制/网格/主题等模块级操作作用在它上面 */
+  setActiveInstance(id: string) {
+    return setActiveInstance(id)
+  },
+  /** 取某实例的地图对象（不改变当前实例；排障用） */
+  getInstanceMap(id: string) {
+    return getMapInstance(id)
   },
 
   // ------------------------------------------------------------ 性能基线与预算（M2-NFR-07 / 11）

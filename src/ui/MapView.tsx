@@ -9,6 +9,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { LayerManager } from '../render/LayerManager'
 import { MapDraw } from '../primitives/api'
 import { mapInstance, layersReady } from '../core/instance'
+import { registerMapInstance, unregisterMapInstance, DEFAULT_INSTANCE_ID } from '../core/instanceRegistry'
 import { MAP_OPTIONS } from '../core/options'
 import { tileMaxZoomFromOptions } from '../core/tilePrecision'
 import { applyControls } from '../core/controls'
@@ -134,7 +135,18 @@ function buildStyle(cfg: MapConfigData | null): maplibregl.StyleSpecification | 
   return fallbackStyle()
 }
 
-export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = ({ data, children }) => {
+/**
+ * 地图容器 props。
+ * `instanceId`：多实例场景下的实例标识（M2-NFR-08）。不传时用保留 id `default`，
+ * 行为与改造前**完全一致**；传了则各实例的样式/数据源/图层/相机/控件天然隔离。
+ */
+export interface MapViewProps {
+  data: MapData
+  children?: React.ReactNode
+  instanceId?: string
+}
+
+export const MapView: React.FC<MapViewProps> = ({ data, children, instanceId = DEFAULT_INSTANCE_ID }) => {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [ready, setReady] = useState(false)
   const setViewport = useMapUiStore((s) => s.setViewport)
@@ -186,6 +198,7 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
       maxPitch: 0,
     })
     mapInstance.current = map
+    registerMapInstance(instanceId, map)   // 多实例注册并置为当前实例（M2-NFR-08）
 
     // 控件按需显示（M2-CTRL-01）：默认全不显示，由 MAP_OPTIONS.controls 与 mapCommands 控制
     applyControls(map)
@@ -250,8 +263,8 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
     return () => {
       stopResourceGuard()              // 退出资源巡检（M2-NFR-12）
       unbindTileFallback()             // 退出降级监测（M2-MAP-10）
+      unregisterMapInstance(instanceId)   // 注销实例；若注销的是当前实例会自动回落（M2-NFR-08）
       map.remove()
-      mapInstance.current = null
       layersReady.current = false
       setReady(false)
     }

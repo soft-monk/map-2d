@@ -14,6 +14,13 @@ export { CoordReadout } from './ui/CoordReadout'
 export { Legend, DEFAULT_LEGEND } from './ui/Legend'
 // 交互层：手绘 / 图元编辑 / 量算（M2-DRAW-08/12/14、M2-CTRL-10）
 export { DrawLayer } from './ui/DrawLayer'
+// 多实例注册表（M2-NFR-08）
+export {
+  registerMapInstance, unregisterMapInstance, listMapInstances, activeInstanceId,
+  setActiveInstance, getMapInstance, instanceCount, DEFAULT_INSTANCE_ID,
+} from './core/instanceRegistry'
+export type { MapInstanceInfo } from './core/instanceRegistry'
+export type { MapViewProps } from './ui/MapView'
 // 性能基线与预算（M2-NFR-07 / 11）
 export {
   runBenchmark, checkRegression, getPerfBudget, setPerfBudget, getBaseline, setBaseline, adoptBaselineFrom,

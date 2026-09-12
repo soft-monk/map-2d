@@ -122,7 +122,10 @@ export const THEMES: Record<ThemeKey, ThemeDef> = {
   },
   night: {
     key: 'night', name: '夜间',
-    raster: { brightnessMin: 0.02, brightnessMax: 0.42, saturation: -0.35, contrast: 0.12, tint: '#0a1a33', tintOpacity: 0.28 },
+    // 亮度上限 0.42 → 0.72：实测 0.42 会把影像压得过暗（画面平均亮度仅 55，
+    // 且快速缩放时"暗"与"缺口底色"不易区分）。0.72 与日间同档，
+    // 但保留偏冷叠加与更高对比，仍是夜间战术观感而非"看不清"。
+    raster: { brightnessMin: 0.06, brightnessMax: 0.72, saturation: -0.32, contrast: 0.14, tint: '#0a1a33', tintOpacity: 0.22 },
     graphic: { haloColor: 'rgba(5,10,20,.85)', haloWidth: 1.8, textColor: '#cfe3f5' },
   },
   contrast: {

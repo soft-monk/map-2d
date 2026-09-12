@@ -37,6 +37,8 @@ export {
   resetTileFallback, TILES_DEGRADED_EVENT,
 } from './core/tileFallback'
 export type { TileDegradeState } from './core/tileFallback'
+export { installTileNetworkHook, tileNetStats, reportTileRequest, looksLikeTile } from './core/tileNet'
+export type { TileNetStats } from './core/tileNet'
 export { validateTiles, missingTilesFrom } from './core/tileValidation'
 export type { TileManifest, ValidationReport, ValidationCheck } from './core/tileValidation'
 // 军事网格与坐标换算（M2-MAP-08）

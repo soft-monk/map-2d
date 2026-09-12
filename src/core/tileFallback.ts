@@ -11,6 +11,7 @@
 // 恢复：窗口内重新出现成功加载 → 自动解除降级并广播恢复事件。
 import type { Map as MlMap } from 'maplibre-gl'
 import { mapInstance } from './instance'
+import { installTileNetworkHook, tileNetStats, resetTileNetStats } from './tileNet'
 
 export interface TileDegradeState {
   /** 是否处于降级（瓦片源不可用） */
@@ -57,10 +58,12 @@ function broadcast() {
 }
 
 function evaluate() {
-  const now = performance.now()
-  prune(now)
-  const e = errors.length
-  const l = loaded.length
+  // 判定依据改为**网络层的真实瓦片请求计数**（core/tileNet）。
+  // 不再用渲染器的 sourcedata —— 那是逐瓦片进度事件，每秒上千次，
+  // 会把"成功数"抬得极高，使降级条件永远不成立（第八轮实测发现）。
+  const net = tileNetStats()
+  const e = net.fail
+  const l = net.ok
   const total = e + l
   const rate = total ? e / total : 0
 
@@ -68,15 +71,12 @@ function evaluate() {
   let nextReason = reason
 
   if (e >= ERROR_COUNT_THRESHOLD && l < MIN_LOADS_TO_BE_HEALTHY) {
-    // 关键口径：**错误多、且几乎没有任何瓦片真正加载成功** → 源不可用。
-    // 早期用"错误率"判定，但 sourcedata 在真实页面上每秒触发上千次，
-    // 会把 loaded 抬得极高、错误率永远接近 0，导致降级**永远不会触发**（实测发现）。
-    // 因此只统计"真实瓦片事件"（带 tile 字段），并用绝对数而非比率。
     nextDegraded = true
     nextReason = '最近 ' + Math.round(WINDOW_MS / 1000) + ' 秒内 ' + e + ' 次瓦片请求失败，仅 ' + l + ' 次成功，判定瓦片源不可用'
       + (rate > 0 ? '（错误率 ' + (rate * 100).toFixed(0) + '%）' : '')
+      + (net.lastError ? '；最后一次失败：' + net.lastError : '')
+    if (net.samples.length) samples = [...net.samples]
   } else if (degraded && l >= MIN_LOADS_TO_BE_HEALTHY && rate < ERROR_RATE_THRESHOLD) {
-    // 恢复：窗口内确实有成功加载，且错误率回到阈值以内
     nextDegraded = false
     nextReason = ''
   }
@@ -87,7 +87,6 @@ function evaluate() {
     at = Date.now()
     if (degraded) {
       console.warn('[map-2d] 瓦片源降级：' + reason + '。地图保持可用（纯色兜底），已广播 ' + TILES_DEGRADED_EVENT + ' 事件。'
-        + (samples.length ? ' 出错样例：' + samples.slice(0, 3).join(' , ') : '')
         + ' 排查建议：确认瓦片服务已启动、模板路径正确（默认 /tiles/raster/{z}/{x}/{y}.jpg）。')
     } else {
       console.info('[map-2d] 瓦片源已恢复，退出降级状态。')
@@ -95,11 +94,11 @@ function evaluate() {
     broadcast()
   }
 }
-
 /** 绑定到地图（MapView 在 load 后调用一次） */
 export function bindTileFallback(map: MlMap) {
   if (bound === map) return
   bound = map
+  installTileNetworkHook()   // 网络层挂钩：统计真实瓦片请求成败（M2-MAP-10）
 
   map.on('error', (e: unknown) => {
     const err = e as { error?: { message?: string; url?: string }; sourceId?: string; tile?: { tileID?: string } }
@@ -115,15 +114,7 @@ export function bindTileFallback(map: MlMap) {
   })
 
   // 成功加载：MapLibre 的 sourcedata 会在瓦片到位时触发
-  // 成功加载：只统计**真正带 tile 的 sourcedata**。
-  // 不能用 isSourceLoaded —— 它在真实页面上每秒触发上千次（实测 5 秒 9199 次），
-  // 会把"成功数"抬得极高，让降级判定失效。
-  map.on('sourcedata', (e: unknown) => {
-    const ev = e as { tile?: unknown }
-    if (!ev?.tile) return
-    loaded.push(performance.now())
-    evaluate()
-  })
+  // 注：成功/失败计数已由网络层负责（core/tileNet），此处不再重复统计。
 
   // 周期性评估：即使不再有新请求，也能在窗口滑过后解除降级
   if (timer) window.clearInterval(timer)
@@ -145,13 +136,16 @@ export function unbindTileFallback() {
 
 /** 当前降级状态 */
 export function tileState(): TileDegradeState {
+  // errors/loaded 取**网络层计数**（与判定同源）；samples 也以网络层为准，
+  // 避免"判定用的是网络数据、对外读的却是渲染器事件计数"这种不一致。
+  const net = tileNetStats()
   return {
     degraded,
     reason,
-    errors: errors.length,
-    loaded: loaded.length,
+    errors: net.fail,
+    loaded: net.ok,
     at,
-    samples: [...samples],
+    samples: net.samples.length ? [...net.samples] : [...samples],
   }
 }
 
@@ -162,6 +156,7 @@ export function isDegraded(): boolean {
 
 /** 手动重置（测试/排障用） */
 export function resetTileFallback() {
+  resetTileNetStats()
   errors = []
   loaded = []
   samples = []

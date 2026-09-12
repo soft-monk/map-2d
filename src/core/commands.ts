@@ -31,6 +31,7 @@ import {
   type DegradePolicy, type DegradeState,
 } from './degrade'
 import { tileState, onTilesDegraded, type TileDegradeState } from './tileFallback'
+import { tileNetStats, reportTileRequest } from './tileNet'
 import { validateTiles } from './tileValidation'
 import { setGridKind, gridKind, coordinateReadout, toMGRS, type GridKind } from './grid'
 import { setDisplayModeManual, clearDisplayModeOverride, displayModeState, availableDisplayModes } from './displayModeState'
@@ -261,6 +262,10 @@ export const mapCommands = {
   /** 订阅瓦片降级状态变化（宿主可据此提示"底图源不可用"） */
   onTilesDegraded(fn: (s: TileDegradeState) => void) {
     return onTilesDegraded(fn)
+  },
+  /** 网络层瓦片请求统计（降级判定的依据，窗口 6 秒） */
+  getTileNetworkStats() {
+    return tileNetStats()
   },
   /** 校验瓦片包版本与完整性（M2-BASE-08）：清单 + 抽样探测 */
   async validateTiles(opts?: Parameters<typeof validateTiles>[0]) {

@@ -9,6 +9,7 @@ import { Compass, CoordReadout, LayerPanel, MapDraw, MapView, basemaps, mapComma
 import type { BasemapDef } from '../index'
 import type { MapData } from '../core/types'
 import { DEMO_BASEMAPS, DEMO_BASEMAP_DEFS, DEMO_SNAPSHOT } from './demo-data'
+import { Acceptance } from './acceptance'
 import './standalone.css'
 
 const BASE_DATA: Omit<MapData, 'config'> = {
@@ -29,6 +30,9 @@ const barButton: React.CSSProperties = {
   background: 'rgba(10,20,36,.78)', border: '1px solid var(--panel-border, #1d3a5c)',
   color: 'var(--text-1, #cfe3f5)', backdropFilter: 'blur(6px)',
 }
+
+/** 11 类图元（用于角标计数） */
+const TOTAL_KINDS: import('../index').PrimitiveKind[] = ['area', 'drone', 'target', 'link', 'track', 'scan', 'pulse', 'cluster', 'label', 'route', 'shape']
 
 /** 控件按需显示的演示项（M2-CTRL-01 ~ 05） */
 const CONTROL_LABELS: [import('../index').MapControlKey, string][] = [
@@ -122,7 +126,7 @@ const App: React.FC = () => {
             ))}
 
             <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 4 }}>
-              {drawn ? `已绘制 ${MapDraw.list('area').length + MapDraw.list('drone').length + MapDraw.list('target').length + MapDraw.list('link').length + MapDraw.list('track').length + MapDraw.list('scan').length + MapDraw.list('pulse').length + MapDraw.list('cluster').length + MapDraw.list('label').length} 个图元` : '未绘制图元'}
+              {drawn ? `已绘制 ${TOTAL_KINDS.reduce((n, k) => n + MapDraw.list(k).length, 0)} 个图元（11 类）` : '未绘制图元'}
             </span>
           </div>
         )}
@@ -131,6 +135,8 @@ const App: React.FC = () => {
         {/* 指北针与经纬度读数都受 controls 开关控制（默认都不显示） */}
         <Compass />
         <CoordReadout />
+        {/* 功能验收台：已完成能力做成可点按钮，待完成项只读展示（需求完成情况一览） */}
+        {!clearMode && <Acceptance />}
       </MapView>
 
       {clearMode && (

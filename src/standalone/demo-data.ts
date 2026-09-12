@@ -164,3 +164,61 @@ export const DEMO_SNAPSHOT: DrawSnapshot = {
     { id: 'SR-1', lng: 116.361, lat: 39.842, radiusKm: 3.5, kind: 'search', label: '后勤点搜索区' },
   ],
 }
+
+// ---------------------------------------------------------------- 验收台清单
+//
+// 用途：`npm run dev` 打开的演示页右侧"功能验收台"用这两份清单渲染。
+// 口径与《需求文档》§6 需求追踪一致：domain 对应 M2-* 域，open 是待完成条目号。
+
+/** 已实现能力清单：验收台上每行一个可点的验证按钮 */
+export interface AcceptedFeature {
+  domain: string
+  /** 该行验证到的需求编号 */
+  ids: string
+  /** 按钮文字（点一下直接调对应 API） */
+  label: string
+  /** 点了会看到什么（写在按钮旁，供对照） */
+  expect: string
+}
+
+export const ACCEPTED_FEATURES: AcceptedFeature[] = [
+  { domain: '漫游与视角', ids: 'M2-MAP-01~07', label: '飞回北京 z12', expect: '视角平滑移动；拖拽/滚轮/双击可用；方向恒正北（二维锁定）' },
+  { domain: '漫游与视角', ids: 'M2-MAP-04', label: '定位到目标 001', expect: '镜头飞到该目标并放大到 z14' },
+  { domain: '控件按需显示', ids: 'M2-CTRL-01~05', label: '开启全部控件', expect: '指北针/经纬度/缩放按钮/比例尺 同时出现（默认都不显示）' },
+  { domain: '控件按需显示', ids: 'M2-CTRL-01~05', label: '关闭全部控件', expect: '四类控件立即消失；地图上只剩底图与图元' },
+  { domain: '图层分组', ids: 'M2-LAYER-01', label: '打开图层面板', expect: '11 个分组可逐个开关；开关状态跨底图切换保留' },
+  { domain: '图元（11 类）', ids: 'M2-DRAW-01', label: '只画目标', expect: '地图只剩 3 个目标点（其余类型被清空）' },
+  { domain: '图元（11 类）', ids: 'M2-DRAW-01', label: '只画航线', expect: '两条虚线航线（青=侦察、琥珀=巡逻）' },
+  { domain: '图元（11 类）', ids: 'M2-DRAW-01', label: '只画圆形/椭圆/目标区', expect: '蓝圆 4km、紫椭圆 9×4km(35°)、红目标区、黄虚线搜索区' },
+  { domain: '图元（11 类）', ids: 'M2-DRAW-01', label: '只画扫描与脉冲', expect: '扫描覆盖圈 + 目标外围扩散脉冲动画' },
+  { domain: '图元（11 类）', ids: 'M2-DRAW-01', label: '载入全部示例', expect: '11 类图元同时出现' },
+  { domain: '图元显隐', ids: 'M2-DRAW-03', label: '隐藏目标 001', expect: '该目标消失，但数据仍在（计数不变）' },
+  { domain: '图元显隐', ids: 'M2-DRAW-03', label: '恢复显示', expect: '目标 001 重新出现' },
+  { domain: '批量提交', ids: 'M2-API-07', label: '批量加 2000 个点', expect: '一次提交只渲染一帧（结果显示耗时与提交次数）' },
+  { domain: '瓦片精度', ids: 'M2-BASE-05', label: '限制到 1km/像素', expect: '源 maxzoom 降到约 z7；继续放大不再请求更细瓦片' },
+  { domain: '瓦片精度', ids: 'M2-BASE-05', label: '取消精度限制', expect: '源 maxzoom 恢复 14，重新按需请求' },
+  { domain: '底图管理', ids: 'M2-BASE-09~12', label: '切到「路网」底图', expect: '整幅替换为路网模板（未自备 tiles/road 时是缺口底色，但视角与图元保持）' },
+  { domain: '底图管理', ids: 'M2-BASE-09~12', label: '切回「卫星影像」', expect: '整幅换回影像；图元、图层开关、控件开关都不丢' },
+  { domain: '底图管理', ids: 'M2-API-11', label: '切不存在的底图', expect: '返回可读失败原因，当前底图不变、不抛异常' },
+  { domain: '图元事件', ids: 'M2-DRAW-13', label: '订阅点击（看提示）', expect: '订阅后点任意图元，右上角显示 kind:id；点空白无反应' },
+  { domain: '错误边界', ids: 'M2-NFR-10', label: '注入 3 条脏数据', expect: '脏数据逐条跳过并上报，合法图元照常渲染' },
+  { domain: '运行指标', ids: 'M2-CTRL-15', label: '刷新指标', expect: '显示帧率/各类图元数/瓦片缓存/最近提交耗时/JS 堆' },
+]
+
+/** 待完成清单（与《需求文档》§6 一致，共 35 条） */
+export interface OpenItem {
+  domain: string
+  /** 该域待完成的条目号 */
+  open: string
+  count: number
+  summary: string
+}
+
+export const OPEN_ITEMS: OpenItem[] = [
+  { domain: 'M2-MAP 地图能力', open: '08–10', count: 3, summary: '军用网格与经纬网、多底图整体切换（切换能力已具备，网格待做）、瓦片源自动降级' },
+  { domain: 'M2-CTRL 地图控件', open: '09–14', count: 6, summary: '显示模式手动切换、量算（测距/测面/方位角）、地图内图例、图层排序与透明度、主题热切换、键盘操作' },
+  { domain: 'M2-BASE 底图', open: '08、13', count: 2, summary: '瓦片包版本与完整性校验；精度上限只作用本地底图的显式验证' },
+  { domain: 'M2-DRAW 绘制接口', open: '08–12、14–18', count: 10, summary: '手绘交互与图元编辑、圈层图元（距离环/方位线）、目标聚合、标签避让、吸附对齐、样式模板、国军标符号库、时间轴回放' },
+  { domain: 'M2-API 对外接口', open: '08、09、14–17', count: 6, summary: '视图状态序列化、图片导出、接口最小示例、接口稳定性约定、回放控制接口、第三方接入指南' },
+  { domain: 'M2-NFR 非功能性', open: '06–09、11–14', count: 8, summary: '底图加载观感、性能基线维护、资源上限、移动端手势、多实例隔离、图元容量指标、大数据量降级、渲染时机合并' },
+]

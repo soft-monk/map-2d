@@ -7,6 +7,12 @@ import { tileMaxZoomFromOptions, applyTilePrecision } from './tilePrecision'
 import { basemaps, type BasemapDef, type BasemapInfo } from './basemaps'
 import type { LayerGroup } from '../render/LayerManager'
 import { stats as runtimeStats, onPrimitiveError, type PrimitiveError, type RuntimeStats } from './diagnostics'
+import { useInteraction, DEFAULT_KIND, type DrawMode, type DrawKind } from './interaction'
+import {
+  bearingDeg, distanceMeters, pathLengthMeters, polygonAreaM2, insertVertex, removeVertex,
+  verticesOf, withVertices, type LngLat,
+} from './geometry'
+import { MapDraw, type PrimitiveKind } from '../primitives/api'
 import type { MapConfigData, MapViewport } from './types'
 
 export const mapCommands = {
@@ -149,6 +155,123 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 手绘 / 编辑 / 量算
+  //  M2-DRAW-08 手绘交互、M2-DRAW-12 图元编辑、M2-DRAW-14 吸附、M2-CTRL-10 量算
+
+  /** 进入绘制模式：'point' 落点 / 'line' 折线 / 'area' 面 / 'measure-line' 测距 / 'measure-area' 测面 / 'none' 退出 */
+  setDrawMode(mode: DrawMode) {
+    const st = useInteraction.getState()
+    st.setMode(mode)
+    if (mode !== 'none') st.setKind(DEFAULT_KIND[mode])
+    return { mode, kind: useInteraction.getState().kind, points: 0 }
+  },
+
+  /** 当前绘制模式 */
+  getDrawMode(): DrawMode {
+    return useInteraction.getState().mode
+  },
+
+  /** 手动结束当前绘制（等价于双击 / Enter） */
+  finishDraw() {
+    // 交互层监听了 Escape/Enter；这里通过派发键盘事件复用同一逻辑，避免两套结束路径
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }))
+  },
+
+  /** 取消当前绘制或编辑（等价于 Esc） */
+  cancelInteraction() {
+    useInteraction.getState().reset()
+  },
+
+  /** 设置绘制结果写入哪一类图元（默认：点→标注、线→航线、面→区域） */
+  setDrawKind(kind: DrawKind) {
+    useInteraction.getState().setKind(kind)
+  },
+
+  /** 进入图元编辑态（拖动其顶点；仅点/线/面/航线/轨迹等有顶点的类型） */
+  editPrimitive(kind: PrimitiveKind, id: string) {
+    const exists = (MapDraw.list(kind) as { id: string }[]).some((x) => x.id === id)
+    if (!exists) return { ok: false, reason: `未找到图元：${kind}:${id}` }
+    useInteraction.getState().startEdit(kind, id)
+    return { ok: true }
+  },
+
+  /** 结束图元编辑 */
+  finishEdit() {
+    useInteraction.getState().endEdit()
+  },
+
+  /** 当前是否处于编辑态 */
+  getEditTarget() {
+    return useInteraction.getState().edit
+  },
+
+  /** 在编辑目标的第 segIndex 段后插入一个顶点（坐标不传则取该段中点） */
+  insertVertexAt(segIndex: number) {
+    const st = useInteraction.getState()
+    const ed = st.edit
+    if (!ed) return { ok: false, reason: '未处于编辑态' }
+    const item = (MapDraw.list(ed.kind) as unknown as Record<string, unknown>[]).find((x) => x.id === ed.id)
+    if (!item) return { ok: false, reason: '编辑目标已不存在' }
+    const vs = verticesOf(ed.kind, item)
+    if (segIndex < 0 || segIndex >= vs.length - 1) return { ok: false, reason: '段索引超出范围' }
+    const mid: LngLat = [(vs[segIndex][0] + vs[segIndex + 1][0]) / 2, (vs[segIndex][1] + vs[segIndex + 1][1]) / 2]
+    const next = insertVertex(vs, segIndex, mid)
+    MapDraw.add(ed.kind, withVertices(ed.kind, item, next) as never)
+    return { ok: true, vertices: next.length }
+  },
+
+  /** 删除编辑目标的第 index 个顶点 */
+  removeVertexAt(index: number) {
+    const st = useInteraction.getState()
+    const ed = st.edit
+    if (!ed) return { ok: false, reason: '未处于编辑态' }
+    const item = (MapDraw.list(ed.kind) as unknown as Record<string, unknown>[]).find((x) => x.id === ed.id)
+    if (!item) return { ok: false, reason: '编辑目标已不存在' }
+    const vs = verticesOf(ed.kind, item)
+    const min = ed.kind === 'area' ? 3 : 2
+    const next = removeVertex(vs, index, min)
+    if (next.length === vs.length) return { ok: false, reason: `至少保留 ${min} 个顶点` }
+    MapDraw.add(ed.kind, withVertices(ed.kind, item, next) as never)
+    return { ok: true, vertices: next.length }
+  },
+
+  /** 是否开启顶点吸附 */
+  setSnapEnabled(on: boolean) {
+    useInteraction.getState().setSnapEnabled(on)
+    return useInteraction.getState().snapEnabled
+  },
+
+  /** 读取最近一次量算结果（测距 / 测面），无结果为 null */
+  getMeasurement() {
+    return useInteraction.getState().measurement
+  },
+
+  /** 清除量算结果 */
+  clearMeasurement() {
+    useInteraction.getState().setMeasurement(null)
+  },
+
+  // ------------------------------------------------------------ 几何计算（宿主可直接用）
+  /** 两点距离（米） */
+  distanceMeters(a: LngLat, b: LngLat) {
+    return distanceMeters(a, b)
+  },
+
+  /** 折线长度（米） */
+  pathLengthMeters(points: LngLat[]) {
+    return pathLengthMeters(points)
+  },
+
+  /** 球面多边形面积（m²） */
+  polygonAreaM2(ring: LngLat[]) {
+    return polygonAreaM2(ring)
+  },
+
+  /** 方位角（度，正北 0、顺时针） */
+  bearingDeg(a: LngLat, b: LngLat) {
+    return bearingDeg(a, b)
   },
 
   // ------------------------------------------------------------ 诊断（M2-CTRL-15 / M2-NFR-10）

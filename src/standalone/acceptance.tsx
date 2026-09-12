@@ -103,6 +103,34 @@ export const Acceptance: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
         mapCommands.setLayerGroupOpacity('target', 1)
         say('target 组透明度 = ' + mapCommands.getLayerGroupOpacity('target'))
         break
+      case '切到画区模式':
+        mapCommands.setDrawMode('area')
+        say('已进入画区模式：地图上单击落点，双击 / Enter 闭合（Esc 取消）')
+        break
+      case '切到航线模式':
+        mapCommands.setDrawMode('line')
+        say('已进入航线模式：单击落点，双击 / Enter 完成')
+        break
+      case '进入测距模式':
+        mapCommands.setDrawMode('measure-line')
+        say('已进入测距：单击起点与终点，双击 / Enter 结束')
+        break
+      case '进入测面模式':
+        mapCommands.setDrawMode('measure-area')
+        say('已进入测面：单击多个点，双击 / Enter 结束')
+        break
+      case '编辑第一个区域': {
+        const first = MapDraw.list('area')[0]
+        if (!first) { say('当前没有区域图元，先点「载入全部示例」'); break }
+        const r = mapCommands.editPrimitive('area', first.id)
+        say(r.ok ? `进入编辑态：area:${first.id}，拖动顶点手柄即可修改` : `进入编辑失败：${r.reason}`)
+        break
+      }
+      case '退出所有交互':
+        mapCommands.cancelInteraction()
+        mapCommands.finishEdit()
+        say('已退出绘制/编辑；预览已清空、拖拽平移已恢复')
+        break
       case '只画目标': only(['target']); break
       case '只画航线': only(['route']); break
       case '只画圆形/椭圆/目标区': only(['shape']); break

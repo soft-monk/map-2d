@@ -1,25 +1,33 @@
 // 地图模块 · 地图工具条（含指北针以外的全部地图级控件）
 //
-// 工具（CAND-MAP-02 / 契约 §9.1）：选择、测距、图层、区域、新建、清屏、全屏、标绘
-//   - 选择 / 图层 / 清屏 / 全屏：已实现
-//   - 测距 / 区域 / 新建 / 标绘：界面占位（disabled，状态见《地图相关需求专篇》CAND-MAP-02）
+// 工具：选择、测距、图层、区域、新建、清屏、全屏、标绘
+//   - 选择 / 图层 / 清屏 / 全屏：视图类
+//   - 测距 / 区域 / 新建 / 标绘：**已激活**（需求 M2-DRAW-08 手绘、M2-CTRL-10 量算）
+//     分别进入 测距（measure-line）/ 面绘制（area）/ 落点（point）/ 折线航线（line）
 // 设计：模块自带内联图标与样式，不依赖应用的 UI 组件库，便于整模块移植。
 import React from 'react'
 import { LayerManager } from '../render/LayerManager'
 import { useMapUiStore } from '../core/store'
+import { useInteraction, type DrawMode } from '../core/interaction'
 import { LayerPanel } from './LayerPanel'
 import type { MapToolKey } from '../core/types'
 
-const TOOLS: { key: MapToolKey; label: string; ready: boolean; hint?: string }[] = [
+/** ready=false 的项为占位；本版已把测距/区域/新建/标绘全部接上交互层 */
+const TOOLS: { key: MapToolKey; label: string; ready: boolean; hint?: string; mode?: DrawMode }[] = [
   { key: 'select', label: '选择', ready: true },
-  { key: 'measure', label: '测距', ready: false, hint: '待实现（CAND-MAP-02）' },
+  { key: 'measure', label: '测距', ready: true, mode: 'measure-line', hint: '单击落点，双击结束' },
   { key: 'layer', label: '图层', ready: true },
-  { key: 'area', label: '区域', ready: false, hint: '待实现（CAND-MAP-02）' },
-  { key: 'new', label: '新建', ready: false, hint: '待实现（CAND-MAP-02）' },
+  { key: 'area', label: '区域', ready: true, mode: 'area', hint: '单击落点，双击闭合' },
+  { key: 'new', label: '新建', ready: true, mode: 'point', hint: '单击落一个标注点' },
   { key: 'clear', label: '清屏', ready: true },
   { key: 'full', label: '全屏', ready: true },
-  { key: 'draw', label: '标绘', ready: false, hint: '待实现（CAND-MAP-02）' },
+  { key: 'draw', label: '标绘', ready: true, mode: 'line', hint: '单击落点，双击结束' },
 ]
+
+/** 工具 key → 绘制模式（用于高亮当前激活的工具） */
+const MODE_OF: Partial<Record<MapToolKey, DrawMode>> = {
+  measure: 'measure-line', area: 'area', new: 'point', draw: 'line',
+}
 
 /** 极简内联图标（避免依赖应用 UI 组件库） */
 const Glyph: React.FC<{ k: MapToolKey }> = ({ k }) => {
@@ -38,6 +46,8 @@ const Glyph: React.FC<{ k: MapToolKey }> = ({ k }) => {
 
 export const MapToolbar: React.FC = () => {
   const { activeTool, setActiveTool, layersOpen, toggleLayersPanel, setLayersPanel, clearMode, toggleClearMode } = useMapUiStore()
+  const drawMode = useInteraction((s) => s.mode)
+  const setDrawMode = useInteraction((s) => s.setMode)
 
   const onTool = (key: MapToolKey) => {
     setActiveTool(key)
@@ -48,7 +58,12 @@ export const MapToolbar: React.FC = () => {
     if (key === 'full') {
       if (document.fullscreenElement) void document.exitFullscreen()
       else void document.documentElement.requestFullscreen().catch(() => undefined)
+      return
     }
+    // 绘制类工具：进入对应模式；点"选择"或再次点同一工具则退出
+    const mode = MODE_OF[key]
+    if (mode) setDrawMode(drawMode === mode ? 'none' : mode)
+    else if (key === 'select') setDrawMode('none')
   }
 
   return (
@@ -56,12 +71,15 @@ export const MapToolbar: React.FC = () => {
       <div style={{ position: 'absolute', top: 12, left: 12, display: 'flex', gap: 6, zIndex: 9 }}>
         {TOOLS.map((t) => {
           const isClear = t.key === 'clear'
-          const active = isClear ? clearMode : activeTool === t.key
+          // 绘制类工具的高亮跟随"当前绘制模式"，而不是上一次点击的工具
+          const active = isClear
+            ? clearMode
+            : (t.mode ? drawMode === t.mode : activeTool === t.key)
           return (
             <button
               key={t.key}
               disabled={!t.ready}
-              title={t.ready ? t.label : `${t.label}：${t.hint}`}
+              title={t.hint ? `${t.label}：${t.hint}` : t.label}
               onClick={() => t.ready && onTool(t.key)}
               style={{
                 padding: '6px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,

@@ -12,6 +12,15 @@ export { Compass } from './ui/Compass'
 export { CoordReadout } from './ui/CoordReadout'
 // 地图内图例（M2-CTRL-11）：内容取自图元真实配色来源
 export { Legend, DEFAULT_LEGEND } from './ui/Legend'
+// 交互层：手绘 / 图元编辑 / 量算（M2-DRAW-08/12/14、M2-CTRL-10）
+export { DrawLayer } from './ui/DrawLayer'
+export { useInteraction, isDrawing, DEFAULT_KIND } from './core/interaction'
+export type { DrawMode, DrawKind, Measurement, EditTarget } from './core/interaction'
+export {
+  distanceMeters, pathLengthMeters, polygonAreaM2, bearingDeg, pointToSegmentMeters,
+  fmtDistance, fmtArea, verticesOf, withVertices, isEditableShape, insertVertex, removeVertex, snapTo,
+} from './core/geometry'
+export type { LngLat } from './core/geometry'
 export type { LegendItem, LegendSection } from './ui/Legend'
 
 export { useMapUiStore, LAYER_GROUPS } from './core/store'

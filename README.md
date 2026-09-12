@@ -210,6 +210,10 @@ npm run dev
 | **圆形 / 椭圆 / 目标区域** | 半径按公里表达；椭圆可给短半轴与方位角；目标区/搜索区有内置配色 | `MapDraw.add('shape', { id, lng, lat, radiusKm, kind })` |
 | **地图内图例** | 威胁等级/目标状态/链路状态/图元类型四组，内容取自真实配色来源 | `<Legend />` 或 `mapCommands.toggleControl('legend')` |
 | **图层排序与分组透明度** | 调整分组叠放次序；设分组整体透明度（保留图元自身透明度语义） | `mapCommands.moveLayerGroup(...)`、`setLayerGroupOpacity(...)` |
+| **手绘（点/线/面）** | 鼠标点几下就画出点、航线、区域；绘制中为预览不进图元集合 | `mapCommands.setDrawMode('line' \| 'area' \| 'point')` + `<DrawLayer />` |
+| **图元编辑** | 拖动顶点手柄改形状，可插入/删除顶点（有顶点数下限保护） | `mapCommands.editPrimitive('area','A-1')`、`insertVertexAt`、`removeVertexAt` |
+| **量算与几何计算** | 测距/测面/方位角；球面公式内联实现，不引第三方库 | `mapCommands.getMeasurement()`、`distanceMeters`、`polygonAreaM2`、`bearingDeg` |
+| **键盘操作** | 方向键平移、+/- 缩放、Esc 取消、Enter 完成、Backspace 退点 | 内置，输入框内不接管 |
 | 接口文档 / 类型自带 / 模块开关集中 | 看文档即可接入 | [doc/接口文档.md](doc/接口文档.md) |
 
 > **注**：控件默认不显示是模块的规矩；**宿主需要谁就自己开**。主系统在启动时调了一次
@@ -227,7 +231,7 @@ npm run dev
 | **工程性** | 性能基线维护、资源上限、大数据量降级、多实例隔离、错误边界 |
 | **观感遗留** | 缩放/拖拽时偶发的深蓝灰方块（已定位成因，曾试一版体感变卡顿已回退） |
 
-完整条目、验收标准与决策记录见 [doc/需求文档.md](doc/需求文档.md)。当前 **93 条需求中已完成 61 条**。
+完整条目、验收标准与决策记录见 [doc/需求文档.md](doc/需求文档.md)。当前 **93 条需求中已完成 66 条**。
 
 ---
 

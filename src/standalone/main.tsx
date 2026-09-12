@@ -5,11 +5,12 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Compass, CoordReadout, LayerPanel, Legend, MapDraw, MapView, basemaps, mapCommands, useMapUiStore } from '../index'
+import { Compass, CoordReadout, DrawLayer, LayerPanel, Legend, MapDraw, MapView, basemaps, mapCommands, useMapUiStore } from '../index'
 import type { BasemapDef } from '../index'
 import type { MapData } from '../core/types'
 import { DEMO_BASEMAPS, DEMO_BASEMAP_DEFS, DEMO_SNAPSHOT } from './demo-data'
 import { Acceptance } from './acceptance'
+import { useInteraction } from '../index'
 import './standalone.css'
 
 const BASE_DATA: Omit<MapData, 'config'> = {
@@ -30,6 +31,15 @@ const barButton: React.CSSProperties = {
   background: 'rgba(10,20,36,.78)', border: '1px solid var(--panel-border, #1d3a5c)',
   color: 'var(--text-1, #cfe3f5)', backdropFilter: 'blur(6px)',
 }
+
+/** 绘制/量算按钮：模式、文字、悬浮说明 */
+const DRAW_BUTTONS: [import('../index').DrawMode, string, string][] = [
+  ['point', '落点', '单击落一个标注点'],
+  ['line', '航线', '单击落点，双击 / Enter 完成'],
+  ['area', '画区', '单击落点，双击 / Enter 闭合'],
+  ['measure-line', '测距', '单击落点，双击 / Enter 结束'],
+  ['measure-area', '测面', '单击落点，双击 / Enter 结束'],
+]
 
 /** 11 类图元（用于角标计数） */
 const TOTAL_KINDS: import('../index').PrimitiveKind[] = ['area', 'drone', 'target', 'link', 'track', 'scan', 'pulse', 'cluster', 'label', 'route', 'shape']
@@ -65,6 +75,7 @@ const App: React.FC = () => {
   const clearMode = useMapUiStore((s) => s.clearMode)
   const toggleClearMode = useMapUiStore((s) => s.toggleClearMode)
   const controls = useMapUiStore((s) => s.controls)
+  const drawMode = useInteraction((s) => s.mode)
 
   const [drawn, setDrawn] = React.useState(false)
 
@@ -112,6 +123,23 @@ const App: React.FC = () => {
             <button style={barButton} onClick={toggleClearMode}>清屏</button>
             <button style={barButton} onClick={() => mapCommands.resetView(config)}>复位视角</button>
 
+            {/* 绘制与量算（M2-DRAW-08 / M2-CTRL-10）：与工具条同一套能力，这里做成按钮组 */}
+            <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 6 }}>绘制：</span>
+            {DRAW_BUTTONS.map(([mode, label, hint]) => (
+              <button
+                key={mode}
+                title={hint}
+                style={{
+                  ...barButton,
+                  borderColor: drawMode === mode ? 'var(--cyan, #22d3ee)' : 'var(--panel-border, #1d3a5c)',
+                  color: drawMode === mode ? 'var(--cyan, #22d3ee)' : 'var(--text-1, #cfe3f5)',
+                }}
+                onClick={() => mapCommands.setDrawMode(drawMode === mode ? 'none' : mode)}
+              >
+                {label}
+              </button>
+            ))}
+
             {/* 控件按需显示（M2-CTRL-01 ~ 05）：四项默认不显示，这里用勾选框演示按需开启 */}
             <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 6 }}>控件：</span>
             {CONTROL_LABELS.map(([key, label]) => (
@@ -137,6 +165,8 @@ const App: React.FC = () => {
         <Compass />
         <CoordReadout />
         <Legend />
+        {/* 交互层：手绘 / 编辑 / 量算 */}
+        <DrawLayer />
         {/* 功能验收台：已完成能力做成可点按钮，待完成项只读展示（需求完成情况一览） */}
         {!clearMode && <Acceptance />}
       </MapView>

@@ -15,6 +15,8 @@ export type PrimitiveKind = 'area' | 'drone' | 'target' | 'link' | 'track' | 'sc
 
 export interface AreaItem {
   id: string
+  /** 是否显示（默认 true）；见 MapDraw.hide/show（M2-DRAW-03） */
+  visible?: boolean
   /** 多边形顶点（经纬度，首尾不必闭合） */
   polygon: [number, number][]
   color?: string
@@ -26,6 +28,8 @@ export interface AreaItem {
 
 export interface DroneItem {
   id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
   lng: number
   lat: number
   type?: UavType
@@ -35,6 +39,8 @@ export interface DroneItem {
 
 export interface TargetItem {
   id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
   lng: number
   lat: number
   threat?: Threat
@@ -47,6 +53,8 @@ export interface TargetItem {
 
 export interface LinkItem {
   id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
   from: [number, number]
   to: [number, number]
   state?: LinkState
@@ -56,6 +64,8 @@ export interface LinkItem {
 
 export interface TrackItem {
   id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
   points: [number, number][]
   color?: string
   dashed?: boolean
@@ -63,6 +73,8 @@ export interface TrackItem {
 
 export interface ScanItem {
   id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
   lng: number
   lat: number
   /** 覆盖半径（公里，按当前缩放换算为像素） */
@@ -73,6 +85,8 @@ export interface ScanItem {
 
 export interface PulseItem {
   id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
   lng: number
   lat: number
   color?: string
@@ -81,6 +95,8 @@ export interface PulseItem {
 
 export interface ClusterItem {
   id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
   lng: number
   lat: number
   name?: string
@@ -89,6 +105,8 @@ export interface ClusterItem {
 
 export interface LabelItem {
   id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
   lng: number
   lat: number
   text: string
@@ -158,8 +176,10 @@ const polygon = (ring: [number, number][], properties: Record<string, unknown>):
 }
 
 // ---------------------------------------------------------------- 渲染
+// 单个图元显隐（M2-DRAW-03）：visible === false 的项**不画**，但数据仍在集合里
+// （list() 读得到、export() 包含），重新显示无需重新灌数据。
 function renderKind(kind: PrimitiveKind) {
-  const items = [...bags[kind].values()]
+  const items = [...bags[kind].values()].filter((it) => (it as { visible?: boolean }).visible !== false)
   switch (kind) {
     case 'area':
       LayerManager.setAreaFeatures(fc((items as AreaItem[]).map((a) =>
@@ -226,6 +246,23 @@ function ensureZoomHook() {
   zoomHooked = true
 }
 
+// ---------------------------------------------------------------- 批量提交（M2-API-07 / M2-NFR-14）
+// 批次内只改集合、不渲染；退出时对"受影响的类型"各提交一次（单帧渲染）。
+let batchDepth = 0
+const dirty = new Set<PrimitiveKind>()
+
+function markDirty(kind: PrimitiveKind) {
+  if (batchDepth > 0) dirty.add(kind)
+  else renderKind(kind)
+}
+
+function flushDirty(): PrimitiveKind[] {
+  const kinds = [...dirty]
+  dirty.clear()
+  for (const k of kinds) renderKind(k)
+  return kinds
+}
+
 // ---------------------------------------------------------------- 公开 API
 export const MapDraw = {
   /** 整组替换某类图元 */
@@ -233,30 +270,91 @@ export const MapDraw = {
     bags[kind].clear()
     ;(items as AnyItem[]).forEach((it) => bags[kind].set(it.id, it))
     ensureZoomHook()
-    renderKind(kind)
+    markDirty(kind)
   },
 
   /** 新增或更新单个图元 */
   add<K extends PrimitiveKind>(kind: K, item: DrawSnapshot[K][number]) {
     bags[kind].set(item.id, item)
     ensureZoomHook()
-    renderKind(kind)
+    markDirty(kind)
   },
 
   /** 删除单个图元 */
   remove(kind: PrimitiveKind, id: string) {
-    if (bags[kind].delete(id)) renderKind(kind)
+    if (bags[kind].delete(id)) markDirty(kind)
   },
 
   /** 清空某类（不传 kind 则清空全部图元并清掉地图上所有动态图层） */
   clear(kind?: PrimitiveKind) {
     if (!kind) {
       ;(Object.keys(bags) as PrimitiveKind[]).forEach((k) => bags[k].clear())
+      dirty.clear()
       LayerManager.clearAll()
       return
     }
     bags[kind].clear()
-    renderKind(kind)
+    markDirty(kind)
+  },
+
+  /**
+   * 批量提交（M2-API-07）：批次内可以任意次 set/add/remove，退出时按受影响类型各渲染一次。
+   * 返回本次受影响的类型清单，便于宿主确认。
+   */
+  batch<T>(fn: () => T): { result: T; kinds: PrimitiveKind[] } {
+    batchDepth++
+    let result!: T
+    try {
+      result = fn()
+    } finally {
+      batchDepth = Math.max(0, batchDepth - 1)
+    }
+    const kinds = batchDepth === 0 ? flushDirty() : []
+    return { result, kinds }
+  },
+
+  // -------------------------------------------------------------- 单个图元显隐（M2-DRAW-03）
+  /** 隐藏某类里的一个图元（数据保留） */
+  hide(kind: PrimitiveKind, id: string) {
+    this.setVisible(kind, id, false)
+  },
+
+  /** 重新显示某类里的一个图元 */
+  show(kind: PrimitiveKind, id: string) {
+    this.setVisible(kind, id, true)
+  },
+
+  /** 设置单个图元的显示状态；图元不存在时返回 false */
+  setVisible(kind: PrimitiveKind, id: string, visible: boolean): boolean {
+    const item = bags[kind].get(id) as { visible?: boolean } | undefined
+    if (!item) return false
+    item.visible = visible
+    markDirty(kind)
+    return true
+  },
+
+  /** 隐藏某一类的全部图元（不传则隐藏所有类型） */
+  hideAll(kind?: PrimitiveKind) {
+    const kinds = kind ? [kind] : (Object.keys(bags) as PrimitiveKind[])
+    for (const k of kinds) {
+      bags[k].forEach((it) => { (it as { visible?: boolean }).visible = false })
+      markDirty(k)
+    }
+  },
+
+  /** 恢复显示（不传 kind 则显示所有类型） */
+  showAll(kind?: PrimitiveKind) {
+    const kinds = kind ? [kind] : (Object.keys(bags) as PrimitiveKind[])
+    for (const k of kinds) {
+      bags[k].forEach((it) => { (it as { visible?: boolean }).visible = true })
+      markDirty(k)
+    }
+  },
+
+  /** 查询单个图元是否显示（图元不存在返回 false） */
+  isVisible(kind: PrimitiveKind, id: string): boolean {
+    const item = bags[kind].get(id) as { visible?: boolean } | undefined
+    return !!item && item.visible !== false
   },
 
   /** 读取某类图元（副本） */

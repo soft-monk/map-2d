@@ -1,6 +1,7 @@
 // 地图模块 · 模块内 UI 状态（自持 store，不与应用业务 store 混用）
 import { create } from 'zustand'
 import { ALL_LAYER_GROUPS, LayerManager, type LayerGroup } from '../render/LayerManager'
+import { MAP_OPTIONS, type MapControlKey } from './options'
 import type { MapToolKey, MapViewport } from './types'
 
 export interface MapUiState {
@@ -16,6 +17,10 @@ export interface MapUiState {
   viewport: MapViewport
   /** 显示模式名称（由应用按阶段写入，模块只负责展示） */
   displayMode: string
+  /** 地图控件显示状态（需求 M2-CTRL-01：初值取 MAP_OPTIONS.controls，通常全不显示） */
+  controls: Record<MapControlKey, boolean>
+  /** 鼠标所在经纬度（coords 控件显示用；未开启也在后台更新，宿主可读） */
+  pointer: { lng: number; lat: number } | null
 
   toggleClearMode(): void
   setClearMode(v: boolean): void
@@ -25,6 +30,8 @@ export interface MapUiState {
   toggleGroup(g: LayerGroup): void
   setViewport(v: Partial<MapViewport>): void
   setDisplayMode(m: string): void
+  setControls(v: Partial<Record<MapControlKey, boolean>>): void
+  setPointer(p: { lng: number; lat: number } | null): void
 }
 
 export const useMapUiStore = create<MapUiState>((set, get) => ({
@@ -34,6 +41,8 @@ export const useMapUiStore = create<MapUiState>((set, get) => ({
   hiddenGroups: LayerManager.hiddenGroups(),
   viewport: { lng: 0, lat: 0, zoom: 0, bearing: 0 },
   displayMode: '',
+  controls: { ...MAP_OPTIONS.controls },
+  pointer: null,
 
   toggleClearMode() {
     const next = !get().clearMode
@@ -62,6 +71,12 @@ export const useMapUiStore = create<MapUiState>((set, get) => ({
   },
   setDisplayMode(m) {
     set({ displayMode: m })
+  },
+  setControls(v) {
+    set({ controls: { ...get().controls, ...v } })
+  },
+  setPointer(p) {
+    set({ pointer: p })
   },
 }))
 

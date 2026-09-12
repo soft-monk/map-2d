@@ -1,16 +1,20 @@
-// 地图模块 · 指北针（MAP-01 / CAND-MAP-03）
+// 地图模块 · 指北针（MAP-01 / CAND-MAP-03 / M2-CTRL-02）
 //
 // 设计：自绘 SVG（不走 MapLibre 自带控件），因为：
 //   1) 二维模式锁定旋转（maxPitch=0、禁 rotate），自带罗盘会被禁用样式；
 //   2) 自绘可随 bearing 旋转、可定制配色，且不占用地图控件位。
 // 行为：随地图 bearing 反向旋转，始终保持指向正北；点击可复位视角朝向。
+//
+// 可见性（M2-CTRL-02）：默认**不显示**，由 `controls.compass` 控制——
+// 调 mapCommands.showControls(['compass']) 才出现；也可传 `force` 强制显示（宿主自行决定时用）。
 import React, { useEffect, useState } from 'react'
 import { mapInstance } from '../core/instance'
 import { useMapUiStore } from '../core/store'
 
-export const Compass: React.FC<{ size?: number }> = ({ size = 44 }) => {
+export const Compass: React.FC<{ size?: number; force?: boolean }> = ({ size = 44, force = false }) => {
   const [bearing, setBearing] = useState(0)
   const setViewport = useMapUiStore((s) => s.setViewport)
+  const enabled = useMapUiStore((s) => s.controls.compass)
 
   useEffect(() => {
     const map = mapInstance.current
@@ -24,6 +28,8 @@ export const Compass: React.FC<{ size?: number }> = ({ size = 44 }) => {
     map.on('rotate', onRotate)
     return () => { map.off('rotate', onRotate) }
   }, [setViewport])
+
+  if (!force && !enabled) return null
 
   return (
     <div

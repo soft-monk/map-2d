@@ -18,6 +18,45 @@ export const MAP_OPTIONS = {
    * 不会在中途露出底色（黑框）。需要老版本的柔和淡入效果时改回 300 即可。
    */
   rasterFadeDuration: 0,
+
+  /**
+   * 地图控件是否显示（需求 M2-CTRL-01 ~ 05）。
+   * 四项**默认全部不显示**：控件能力具备，但不由模块自动挂上地图——
+   * 需要时用 `mapCommands.showControls(['compass','scale'])` 按需开启。
+   * 也可以直接改这里的默认值，让某类控件开箱即显示。
+   */
+  controls: {
+    /** 指北针（随方向旋转，点击复位正北） */
+    compass: false,
+    /** 鼠标位置经纬度（随光标刷新） */
+    coords: false,
+    /** 缩放按钮 + / − */
+    zoom: false,
+    /** 比例尺（公制） */
+    scale: false,
+  },
+
+  /**
+   * 瓦片精度上限（需求 M2-BASE-05 / 决策 D2：**默认不限制**）。
+   * 单位：米/像素，null 表示不限制；也可以用 `mapCommands.setTilePrecisionLimit()` 运行时设置。
+   * 只作用于本地栅格底图（在线样式底图不受约束，决策 D4）。
+   */
+  tileMaxMetersPerPixel: null as number | null,
 }
 
 export type MapOptions = typeof MAP_OPTIONS
+
+/** 可开关的地图控件标识（M2-CTRL-01） */
+export type MapControlKey = keyof typeof MAP_OPTIONS.controls
+
+export const ALL_CONTROL_KEYS = ['compass', 'coords', 'zoom', 'scale'] as const satisfies readonly MapControlKey[]
+
+/** 米/像素 → 缩放层级（Web Mercator，取赤道值，偏保守）；用于瓦片精度上限换算 */
+export function metersPerPixelToZoom(mpp: number): number {
+  return Math.log2(156543.03392 / Math.max(0.01, mpp))
+}
+
+/** 缩放层级 → 米/像素（赤道值） */
+export function zoomToMetersPerPixel(z: number): number {
+  return 156543.03392 / Math.pow(2, z)
+}

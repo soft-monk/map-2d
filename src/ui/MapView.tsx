@@ -10,6 +10,8 @@ import { LayerManager } from '../render/LayerManager'
 import { MapDraw } from '../primitives/api'
 import { mapInstance } from '../core/instance'
 import { MAP_OPTIONS } from '../core/options'
+import { tileMaxZoomFromOptions } from '../core/tilePrecision'
+import { applyControls } from '../core/controls'
 import { useMapUiStore } from '../core/store'
 import type { MapConfigData, MapData } from '../core/types'
 
@@ -24,6 +26,12 @@ const GAP_BG = '#16283a'
 // 底图瓦片可用到的最大级别；低清全球底图只取到 UNDERLAY_MAX_ZOOM。
 const BASE_MAX_ZOOM = 14
 const UNDERLAY_MAX_ZOOM = 6
+
+/**
+ * 瓦片精度上限 → 允许使用的最大层级（需求 M2-BASE-05 / 决策 D2、D3）。
+ * 换算与状态在 core/tilePrecision.ts；这里只做转发，保持 UI 侧引用集中。
+ */
+export { tileMaxZoomFromOptions } from '../core/tilePrecision'
 
 /** 无瓦片时的兜底样式：纯底，保证任何环境都能打开 */
 function fallbackStyle(): maplibregl.StyleSpecification {
@@ -52,6 +60,8 @@ function rasterStyle(tileUrl: string, attribution: string): maplibregl.StyleSpec
   // 署名是否交给 MapLibre 由 MAP_OPTIONS.showAttribution 决定：
   // 关闭时不写入 source.attribution，避免控件隐藏但样式里仍残留署名文本。
   const attrib = MAP_OPTIONS.showAttribution ? { attribution } : {}
+  // 精度上限：两层的 maxzoom 都不超过它（叠底层再单独受 UNDERLAY_MAX_ZOOM 约束）
+  const limit = tileMaxZoomFromOptions()
   return {
     version: 8,
     sources: {
@@ -59,7 +69,7 @@ function rasterStyle(tileUrl: string, attribution: string): maplibregl.StyleSpec
         type: 'raster',
         tiles: [tileUrl],
         tileSize: 256,
-        maxzoom: BASE_MAX_ZOOM,
+        maxzoom: limit,
         ...attrib,
       },
       // 同一 URL 模板：z0–6 请求的就是全球低清瓦片，z7+ 的显示由父瓦片放大提供
@@ -67,7 +77,7 @@ function rasterStyle(tileUrl: string, attribution: string): maplibregl.StyleSpec
         type: 'raster',
         tiles: [tileUrl],
         tileSize: 256,
-        maxzoom: UNDERLAY_MAX_ZOOM,
+        maxzoom: Math.min(limit, UNDERLAY_MAX_ZOOM),
       },
     },
     layers: [
@@ -119,8 +129,17 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [ready, setReady] = useState(false)
   const setViewport = useMapUiStore((s) => s.setViewport)
+  const setPointer = useMapUiStore((s) => s.setPointer)
+  // 精度上限变化时递增，用于触发底图样式重建（见下方 basemapKey）
+  const [precisionRev, setPrecisionRev] = useState(0)
   // 初始化只做一次：用挂载时的配置快照
   const bootRef = useRef<MapData>(data)
+
+  useEffect(() => {
+    const onPrecision = () => setPrecisionRev((n) => n + 1)
+    window.addEventListener('map2d:tile-precision-change', onPrecision)
+    return () => window.removeEventListener('map2d:tile-precision-change', onPrecision)
+  }, [])
 
   useEffect(() => {
     if (!hostRef.current) return
@@ -149,14 +168,24 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
     })
     mapInstance.current = map
 
-    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right')
-    map.addControl(new maplibregl.ScaleControl({ maxWidth: 120, unit: 'metric' }), 'bottom-left')
+    // 控件按需显示（M2-CTRL-01）：默认全不显示，由 MAP_OPTIONS.controls 与 mapCommands 控制
+    applyControls(map)
 
     map.on('load', () => {
       LayerManager.init(map)
       LayerManager.applyVisibility()   // 恢复用户此前的图层开关
       setReady(true)
     })
+
+    // 鼠标位置经纬度（coords 控件用；节流后再写状态，避免每像素触发重渲染）
+    let lastPointer = 0
+    map.on('mousemove', (e) => {
+      const now = performance.now()
+      if (now - lastPointer < 60) return
+      lastPointer = now
+      setPointer({ lng: +e.lngLat.lng.toFixed(5), lat: +e.lngLat.lat.toFixed(5) })
+    })
+    map.getCanvas().addEventListener('mouseleave', () => setPointer(null))
 
     const syncViewport = () => {
       const c = map.getCenter()
@@ -194,7 +223,8 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
   }, [config])
 
   // 底图切换（独立宿主可在运行中切换"本地瓦片 ↔ 在线样式"）
-  const basemapKey = `${config?.basemap?.styleUrl ?? ''}|${config?.basemap?.tileUrlTemplate ?? ''}`
+  //   精度上限变化（tileMax）也走同一条路径：源 maxzoom 变了必须重建样式
+  const basemapKey = `${config?.basemap?.styleUrl ?? ''}|${config?.basemap?.tileUrlTemplate ?? ''}|${tileMaxZoomFromOptions()}`
   const firstBasemapRef = useRef(true)
   useEffect(() => {
     const map = mapInstance.current
@@ -210,7 +240,8 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
       MapDraw.render()
     }
     map.once('styledata', onStyled)
-  }, [basemapKey])
+    // precisionRev 只用于触发重建（值本身不参与）
+  }, [basemapKey, precisionRev])
 
   return (
     <div style={{ position: 'absolute', inset: 0 }}>

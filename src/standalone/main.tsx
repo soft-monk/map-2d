@@ -5,7 +5,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Compass, LayerPanel, MapDraw, MapView, mapCommands, useMapUiStore } from '../index'
+import { Compass, CoordReadout, LayerPanel, MapDraw, MapView, mapCommands, useMapUiStore } from '../index'
 import type { MapData } from '../core/types'
 import { DEMO_BASEMAPS, DEMO_SNAPSHOT } from './demo-data'
 import './standalone.css'
@@ -27,6 +27,14 @@ const barButton: React.CSSProperties = {
   color: 'var(--text-1, #cfe3f5)', backdropFilter: 'blur(6px)',
 }
 
+/** 控件按需显示的演示项（M2-CTRL-01 ~ 05） */
+const CONTROL_LABELS: [import('../index').MapControlKey, string][] = [
+  ['compass', '指北针'],
+  ['coords', '经纬度'],
+  ['zoom', '缩放按钮'],
+  ['scale', '比例尺'],
+]
+
 const App: React.FC = () => {
   const [basemap, setBasemap] = React.useState<keyof typeof DEMO_BASEMAPS>('local')
   const config = DEMO_BASEMAPS[basemap].config
@@ -36,6 +44,7 @@ const App: React.FC = () => {
   const toggleLayersPanel = useMapUiStore((s) => s.toggleLayersPanel)
   const clearMode = useMapUiStore((s) => s.clearMode)
   const toggleClearMode = useMapUiStore((s) => s.toggleClearMode)
+  const controls = useMapUiStore((s) => s.controls)
 
   const [drawn, setDrawn] = React.useState(false)
 
@@ -82,6 +91,20 @@ const App: React.FC = () => {
             <button style={barButton} onClick={toggleClearMode}>清屏</button>
             <button style={barButton} onClick={() => mapCommands.resetView(config)}>复位视角</button>
 
+            {/* 控件按需显示（M2-CTRL-01 ~ 05）：四项默认不显示，这里用勾选框演示按需开启 */}
+            <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 6 }}>控件：</span>
+            {CONTROL_LABELS.map(([key, label]) => (
+              <label key={key} style={{ ...barButton, display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={controls[key]}
+                  onChange={(e) => mapCommands.showControls([key], e.target.checked)}
+                  style={{ margin: 0 }}
+                />
+                {label}
+              </label>
+            ))}
+
             <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 4 }}>
               {drawn ? `已绘制 ${MapDraw.list('area').length + MapDraw.list('drone').length + MapDraw.list('target').length + MapDraw.list('link').length + MapDraw.list('track').length + MapDraw.list('scan').length + MapDraw.list('pulse').length + MapDraw.list('cluster').length + MapDraw.list('label').length} 个图元` : '未绘制图元'}
             </span>
@@ -89,7 +112,9 @@ const App: React.FC = () => {
         )}
 
         {layersOpen && !clearMode && <LayerPanel />}
+        {/* 指北针与经纬度读数都受 controls 开关控制（默认都不显示） */}
         <Compass />
+        <CoordReadout />
       </MapView>
 
       {clearMode && (

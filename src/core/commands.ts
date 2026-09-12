@@ -1,6 +1,9 @@
 // map-2d · 视角命令（命令式 API，宿主可主动控制地图）
 import { mapInstance } from './instance'
 import { LayerManager } from '../render/LayerManager'
+import { MAP_OPTIONS, zoomToMetersPerPixel, type MapControlKey } from './options'
+import { showControls, toggleControl, visibleControls, controlState } from './controls'
+import { tileMaxZoomFromOptions, applyTilePrecision } from './tilePrecision'
 import type { MapConfigData, MapViewport } from './types'
 
 export const mapCommands = {
@@ -50,5 +53,50 @@ export const mapCommands = {
   /** 未初始化时返回 false，宿主可据此决定何时调用 */
   isReady(): boolean {
     return !!mapInstance.current
+  },
+
+  // ------------------------------------------------------------ 控件按需显示（M2-CTRL-01 ~ 05）
+  /** 显示/隐藏指定控件；`on=false` 关闭。未列出的控件保持原状 */
+  showControls(keys: MapControlKey | MapControlKey[], on = true) {
+    showControls(mapInstance.current, Array.isArray(keys) ? keys : [keys], on)
+  },
+
+  /** 切换单个控件的显示状态 */
+  toggleControl(key: MapControlKey) {
+    toggleControl(mapInstance.current, key)
+  },
+
+  /** 当前显示的控件清单 */
+  getControls(): MapControlKey[] {
+    return visibleControls()
+  },
+
+  /** 读取控件开关状态（含未显示的） */
+  getControlState(): Record<MapControlKey, boolean> {
+    return controlState()
+  },
+
+  // ------------------------------------------------------------ 瓦片精度上限（M2-BASE-05）
+  /**
+   * 限制底图只使用到指定精度（超过上限的层级不再请求，改用较粗瓦片放大显示）。
+   * 传 `null` 取消限制；传 `{ maxZoom }` 或 `{ maxMetersPerPixel }` 设定上限。
+   * 返回实际生效的最大层级（null 表示不限制）。
+   */
+  setTilePrecisionLimit(limit: { maxMetersPerPixel?: number; maxZoom?: number } | null): number | null {
+    if (limit == null) {
+      MAP_OPTIONS.tileMaxMetersPerPixel = null
+      applyTilePrecision()
+      return null
+    }
+    MAP_OPTIONS.tileMaxMetersPerPixel =
+      limit.maxMetersPerPixel ?? (limit.maxZoom != null ? zoomToMetersPerPixel(limit.maxZoom) : null)
+    return MAP_OPTIONS.tileMaxMetersPerPixel == null ? null : applyTilePrecision()
+  },
+
+  /** 读取当前精度上限（未设置返回 null） */
+  getTilePrecisionLimit(): { maxMetersPerPixel: number; maxZoom: number } | null {
+    const mpp = MAP_OPTIONS.tileMaxMetersPerPixel
+    if (mpp == null) return null
+    return { maxMetersPerPixel: mpp, maxZoom: tileMaxZoomFromOptions() }
   },
 }

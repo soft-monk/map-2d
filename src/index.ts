@@ -14,6 +14,12 @@ export { CoordReadout } from './ui/CoordReadout'
 export { Legend, DEFAULT_LEGEND } from './ui/Legend'
 // 交互层：手绘 / 图元编辑 / 量算（M2-DRAW-08/12/14、M2-CTRL-10）
 export { DrawLayer } from './ui/DrawLayer'
+// 性能基线与预算（M2-NFR-07 / 11）
+export {
+  runBenchmark, checkRegression, getPerfBudget, setPerfBudget, getBaseline, setBaseline, adoptBaselineFrom,
+  BASELINE, DEFAULT_BUDGET,
+} from './core/perfBaseline'
+export type { PerfBudget, BaselineEntry, RegressionResult, BenchRow } from './core/perfBaseline'
 // 资源上限与渲染降级（M2-NFR-12 / 13）
 export {
   setResourceLimits, getResourceLimits, resourceUsage, enforce as enforceResourceLimits,

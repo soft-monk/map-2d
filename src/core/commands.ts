@@ -19,6 +19,10 @@ import {
 } from './viewState'
 import { renderTiming } from './diagnostics'
 import {
+  runBenchmark, checkRegression, getPerfBudget, setPerfBudget, getBaseline, setBaseline, adoptBaselineFrom,
+  type PerfBudget, type BaselineEntry, type RegressionResult, type BenchRow,
+} from './perfBaseline'
+import {
   setResourceLimits, getResourceLimits, resourceUsage, enforce,
   type ResourceLimits, type ResourceUsage,
 } from './resources'
@@ -186,6 +190,34 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 性能基线与预算（M2-NFR-07 / 11）
+  /** 跑一遍性能基准（同需求文档 §4 的口径），返回逐场景表格 */
+  async runBenchmark() {
+    return runBenchmark()
+  },
+  /** 与固化基线 + 性能预算对比，给出是否劣化 */
+  async checkPerfRegression() {
+    return checkRegression()
+  },
+  /** 读取/设置性能预算（首屏可交互、最低帧率、批量提交、单点更新、堆占用） */
+  getPerfBudget() {
+    return getPerfBudget()
+  },
+  setPerfBudget(patch: Partial<PerfBudget>) {
+    return setPerfBudget(patch)
+  },
+  /** 读取/覆盖基线（换机器后重跑基准写回） */
+  getPerfBaseline() {
+    return getBaseline()
+  },
+  /** 用刚跑出的结果刷新基线（换机器/功能演进后使用） */
+  adoptPerfBaseline(rows: BenchRow[]) {
+    return adoptBaselineFrom(rows)
+  },
+  setPerfBaseline(entries: BaselineEntry[]) {
+    return setBaseline(entries)
   },
 
   // ------------------------------------------------------------ 资源上限与渲染降级（M2-NFR-12 / 13）

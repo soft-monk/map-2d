@@ -4,6 +4,8 @@ import { LayerManager } from '../render/LayerManager'
 import { MAP_OPTIONS, zoomToMetersPerPixel, type MapControlKey } from './options'
 import { showControls, toggleControl, visibleControls, controlState } from './controls'
 import { tileMaxZoomFromOptions, applyTilePrecision } from './tilePrecision'
+import { basemaps, type BasemapDef, type BasemapInfo } from './basemaps'
+import { stats as runtimeStats, onPrimitiveError, type PrimitiveError, type RuntimeStats } from './diagnostics'
 import type { MapConfigData, MapViewport } from './types'
 
 export const mapCommands = {
@@ -98,5 +100,37 @@ export const mapCommands = {
     const mpp = MAP_OPTIONS.tileMaxMetersPerPixel
     if (mpp == null) return null
     return { maxMetersPerPixel: mpp, maxZoom: tileMaxZoomFromOptions() }
+  },
+
+  // ------------------------------------------------------------ 底图管理（M2-API-10 ~ 13）
+  /** 底图清单（含是否当前） */
+  listBasemaps(): BasemapInfo[] {
+    return basemaps.list()
+  },
+
+  /** 当前底图 */
+  currentBasemap(): BasemapDef | null {
+    return basemaps.current()
+  },
+
+  /** 按标识切换底图（整幅替换）；无效标识返回可读原因，不抛异常 */
+  switchBasemap(id: string) {
+    return basemaps.switch(id)
+  },
+
+  /** 订阅底图切换通知；返回取消订阅函数 */
+  onBasemapChange(fn: (def: BasemapDef | null) => void): () => void {
+    return basemaps.onChange(fn)
+  },
+
+  // ------------------------------------------------------------ 诊断（M2-CTRL-15 / M2-NFR-10）
+  /** 运行指标：帧率、各类图元数量、瓦片缓存量、最近一次提交耗时、JS 堆 */
+  getStats(): RuntimeStats {
+    return runtimeStats()
+  },
+
+  /** 订阅"图元数据非法"上报；返回取消订阅函数 */
+  onPrimitiveError(fn: (e: PrimitiveError) => void): () => void {
+    return onPrimitiveError(fn)
   },
 }

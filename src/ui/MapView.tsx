@@ -12,6 +12,9 @@ import { mapInstance } from '../core/instance'
 import { MAP_OPTIONS } from '../core/options'
 import { tileMaxZoomFromOptions } from '../core/tilePrecision'
 import { applyControls } from '../core/controls'
+import { BASEMAP_CHANGE_EVENT, basemaps } from '../core/basemaps'
+import { bindPrimitiveEvents } from '../core/primitiveEvents'
+import { setPrimitiveCounter, startFpsCounter } from '../core/diagnostics'
 import { useMapUiStore } from '../core/store'
 import type { MapConfigData, MapData } from '../core/types'
 
@@ -132,13 +135,20 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
   const setPointer = useMapUiStore((s) => s.setPointer)
   // 精度上限变化时递增，用于触发底图样式重建（见下方 basemapKey）
   const [precisionRev, setPrecisionRev] = useState(0)
+  // 底图切换（basemaps.switch）：由 core/basemaps 广播，这里递增同样触发重建
+  const [basemapRev, setBasemapRev] = useState(0)
   // 初始化只做一次：用挂载时的配置快照
   const bootRef = useRef<MapData>(data)
 
   useEffect(() => {
     const onPrecision = () => setPrecisionRev((n) => n + 1)
+    const onBasemap = () => setBasemapRev((n) => n + 1)
     window.addEventListener('map2d:tile-precision-change', onPrecision)
-    return () => window.removeEventListener('map2d:tile-precision-change', onPrecision)
+    window.addEventListener(BASEMAP_CHANGE_EVENT, onBasemap)
+    return () => {
+      window.removeEventListener('map2d:tile-precision-change', onPrecision)
+      window.removeEventListener(BASEMAP_CHANGE_EVENT, onBasemap)
+    }
   }, [])
 
   useEffect(() => {
@@ -174,6 +184,19 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
     map.on('load', () => {
       LayerManager.init(map)
       LayerManager.applyVisibility()   // 恢复用户此前的图层开关
+      bindPrimitiveEvents(map)         // 图元点击/悬停回调（M2-DRAW-13）
+      startFpsCounter()                // 运行指标（M2-CTRL-15）
+      setPrimitiveCounter(() => ({     // 各类图元数量：由绘制 API 的集合统计
+        area: MapDraw.list('area').length,
+        drone: MapDraw.list('drone').length,
+        target: MapDraw.list('target').length,
+        link: MapDraw.list('link').length,
+        track: MapDraw.list('track').length,
+        scan: MapDraw.list('scan').length,
+        pulse: MapDraw.list('pulse').length,
+        cluster: MapDraw.list('cluster').length,
+        label: MapDraw.list('label').length,
+      }))
       setReady(true)
     })
 
@@ -222,15 +245,25 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
     map.easeTo({ center: [lng, lat], zoom: config.zoom, duration: 600 })
   }, [config])
 
-  // 底图切换（独立宿主可在运行中切换"本地瓦片 ↔ 在线样式"）
-  //   精度上限变化（tileMax）也走同一条路径：源 maxzoom 变了必须重建样式
-  const basemapKey = `${config?.basemap?.styleUrl ?? ''}|${config?.basemap?.tileUrlTemplate ?? ''}|${tileMaxZoomFromOptions()}`
+  // 底图切换有两条来源：
+  //   ① 宿主直接改 config.basemap（本地瓦片 ↔ 在线样式）
+  //   ② 调 basemaps.switch(id)（多套本地底图整体替换）——由 core/basemaps 广播触发
+  // 精度上限变化（tileMax）也走同一条路径：源 maxzoom 变了必须重建样式
+  const activeBasemap = basemaps.current()
+  const basemapKey = [
+    config?.basemap?.styleUrl ?? '',
+    config?.basemap?.tileUrlTemplate ?? '',
+    activeBasemap?.id ?? '',
+    tileMaxZoomFromOptions(),
+  ].join('|')
   const firstBasemapRef = useRef(true)
   useEffect(() => {
     const map = mapInstance.current
     if (!map) return
     if (firstBasemapRef.current) { firstBasemapRef.current = false; return }
-    map.setStyle(buildStyle(config) as never)
+    // 有注册底图时以注册表的当前项为准（basemaps.switch 的语义就是"整幅替换"）
+    const style = activeBasemap ? buildStyle(basemaps.toConfig(activeBasemap, config)) : buildStyle(config)
+    map.setStyle(style as never)
     const onStyled = () => {
       // setStyle 会清空所有 source/layer，需要重建并重放绘图 API 的图元
       if (!map.getSource('src-area')) {
@@ -240,8 +273,8 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
       MapDraw.render()
     }
     map.once('styledata', onStyled)
-    // precisionRev 只用于触发重建（值本身不参与）
-  }, [basemapKey, precisionRev])
+    // basemapRev 只用于触发重建（值本身不参与比较）
+  }, [basemapKey, precisionRev, basemapRev])
 
   return (
     <div style={{ position: 'absolute', inset: 0 }}>

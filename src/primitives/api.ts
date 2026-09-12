@@ -8,6 +8,8 @@
 // 不涉及鼠标手绘交互（手绘留待后续版本）。
 import { mapInstance } from '../core/instance'
 import { LayerManager } from '../render/LayerManager'
+import { filterValid } from '../core/validate'
+import { recordSubmit, reportPrimitiveError } from '../core/diagnostics'
 import type { LinkState, Threat, UavType } from '../core/types'
 
 // ---------------------------------------------------------------- 图元类型
@@ -180,6 +182,18 @@ const polygon = (ring: [number, number][], properties: Record<string, unknown>):
 // （list() 读得到、export() 包含），重新显示无需重新灌数据。
 function renderKind(kind: PrimitiveKind) {
   const items = [...bags[kind].values()].filter((it) => (it as { visible?: boolean }).visible !== false)
+  const t0 = performance.now()
+  try {
+    renderItems(kind, items)
+  } catch (err) {
+    // 错误边界（M2-NFR-10）：渲染层异常不向上抛，转为可查询的错误记录
+    reportPrimitiveError({ kind, id: '(整类)', reason: String((err as Error)?.message ?? err) })
+  } finally {
+    recordSubmit(performance.now() - t0)
+  }
+}
+
+function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
   switch (kind) {
     case 'area':
       LayerManager.setAreaFeatures(fc((items as AreaItem[]).map((a) =>
@@ -265,19 +279,24 @@ function flushDirty(): PrimitiveKind[] {
 
 // ---------------------------------------------------------------- 公开 API
 export const MapDraw = {
-  /** 整组替换某类图元 */
+  /** 整组替换某类图元；非法项跳过并上报（M2-NFR-10），合法项照常渲染 */
   set<K extends PrimitiveKind>(kind: K, items: DrawSnapshot[K]) {
     bags[kind].clear()
-    ;(items as AnyItem[]).forEach((it) => bags[kind].set(it.id, it))
+    const { valid } = filterValid(kind, items as { id?: unknown }[])
+    ;(valid as AnyItem[]).forEach((it) => bags[kind].set(it.id, it))
     ensureZoomHook()
     markDirty(kind)
   },
 
-  /** 新增或更新单个图元 */
+  /** 新增或更新单个图元；数据非法时跳过并上报，返回是否被接受 */
   add<K extends PrimitiveKind>(kind: K, item: DrawSnapshot[K][number]) {
-    bags[kind].set(item.id, item)
+    const { valid } = filterValid(kind, [item as { id?: unknown }])
+    if (!valid.length) return false
+    const it = valid[0] as AnyItem
+    bags[kind].set(it.id, it)
     ensureZoomHook()
     markDirty(kind)
+    return true
   },
 
   /** 删除单个图元 */

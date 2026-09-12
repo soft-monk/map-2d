@@ -26,6 +26,22 @@ export { setControl, showControls, toggleControl, visibleControls, controlState,
 // 瓦片精度上限（M2-BASE-05）：按地面分辨率设限，默认不限制，只作用于本地栅格底图
 export { tileMaxZoomFromOptions, applyTilePrecision, TILE_DATA_MAX_ZOOM } from './core/tilePrecision'
 
+// 底图管理（M2-MAP-09 / M2-BASE-09 ~ 13 / M2-API-10 ~ 13）：
+// 多套本地底图可枚举、可切换（整幅替换）、切换后状态保持，并对外提供通知
+export { basemaps, initialBasemapConfig, BASEMAP_CHANGE_EVENT } from './core/basemaps'
+export type { BasemapDef, BasemapInfo, BasemapListener } from './core/basemaps'
+
+// 图元事件（M2-DRAW-13）：点击/悬停回调只带图元身份，空白处不触发
+export { onPrimitiveEvent, bindPrimitiveEvents, unbindPrimitiveEvents, clearPrimitiveHandlers } from './core/primitiveEvents'
+export type { PrimitiveEvent, PrimitiveEventName } from './core/primitiveEvents'
+
+// 运行指标与错误上报（M2-CTRL-15 / M2-NFR-10 / M2-NFR-11）
+export {
+  stats as runtimeStats, onPrimitiveError, recentErrors, resetDiagnostics,
+  startFpsCounter, stopFpsCounter, setPrimitiveCounter, recordSubmit, reportPrimitiveError,
+} from './core/diagnostics'
+export type { RuntimeStats, PrimitiveError } from './core/diagnostics'
+
 // 绘制 API（图元驱动渲染：无人机/区域/目标/链路/轨迹/扫描/脉冲/标注…）
 export { MapDraw } from './primitives/api'
 export type {

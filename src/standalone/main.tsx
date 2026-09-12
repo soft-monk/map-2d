@@ -5,9 +5,10 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Compass, CoordReadout, LayerPanel, MapDraw, MapView, mapCommands, useMapUiStore } from '../index'
+import { Compass, CoordReadout, LayerPanel, MapDraw, MapView, basemaps, mapCommands, useMapUiStore } from '../index'
+import type { BasemapDef } from '../index'
 import type { MapData } from '../core/types'
-import { DEMO_BASEMAPS, DEMO_SNAPSHOT } from './demo-data'
+import { DEMO_BASEMAPS, DEMO_BASEMAP_DEFS, DEMO_SNAPSHOT } from './demo-data'
 import './standalone.css'
 
 const BASE_DATA: Omit<MapData, 'config'> = {
@@ -35,10 +36,22 @@ const CONTROL_LABELS: [import('../index').MapControlKey, string][] = [
   ['scale', '比例尺'],
 ]
 
+// 底图清单交给模块的注册表（M2-BASE-09/10/12）：**在渲染前注册**，这样建图时
+// 首屏底图就直接来自注册表，不会先建一次再重建。
+basemaps.setList(DEMO_BASEMAP_DEFS)
+
 const App: React.FC = () => {
-  const [basemap, setBasemap] = React.useState<keyof typeof DEMO_BASEMAPS>('local')
-  const config = DEMO_BASEMAPS[basemap].config
+  const [basemapList, setBasemapList] = React.useState<BasemapDef[]>(() => basemaps.list())
+  const config = DEMO_BASEMAPS.local.config
   const data = React.useMemo<MapData>(() => ({ ...BASE_DATA, config }), [config])
+
+  // 订阅切换通知：宿主据此同步自己的下拉框（模块负责整幅替换与状态保持）
+  React.useEffect(() => basemaps.onChange((def) => {
+    setBasemapList(basemaps.list())
+    console.info('[demo] 底图已切换 →', def?.id ?? '(无)')
+  }), [])
+
+  const currentBasemapId = basemapList.find((b) => b.isCurrent)?.id ?? ''
 
   const layersOpen = useMapUiStore((s) => s.layersOpen)
   const toggleLayersPanel = useMapUiStore((s) => s.toggleLayersPanel)
@@ -70,12 +83,13 @@ const App: React.FC = () => {
         {!clearMode && (
           <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
             <select
-              value={basemap}
-              onChange={(e) => setBasemap(e.target.value as keyof typeof DEMO_BASEMAPS)}
+              value={currentBasemapId}
+              onChange={(e) => mapCommands.switchBasemap(e.target.value)}
               style={{ ...barButton, paddingRight: 6 }}
+              title="底图切换（整幅替换）：由模块 basemaps 注册表驱动"
             >
-              {Object.entries(DEMO_BASEMAPS).map(([k, v]) => (
-                <option key={k} value={k}>{v.label}</option>
+              {basemapList.map((b) => (
+                <option key={b.id} value={b.id}>{b.name}</option>
               ))}
             </select>
 

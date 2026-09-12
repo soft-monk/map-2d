@@ -4,6 +4,7 @@
 // 全部图元长什么样，也当作 Draw API 的用法示例。
 import type { DrawSnapshot } from '../primitives/api'
 import type { MapConfigData } from '../core/types'
+import type { BasemapDef } from '../core/basemaps'
 
 /** 演示中心（北京） */
 const C: [number, number] = [116.3974, 39.9093]
@@ -45,6 +46,50 @@ export const DEMO_BASEMAPS: Record<string, { label: string; config: MapConfigDat
     },
   },
 }
+
+/**
+ * 底图注册表用的清单（M2-BASE-09 ~ 13 / M2-API-10 ~ 13 的演示数据）。
+ *
+ * 独立宿主用它演示"多套底图可枚举、可切换、整幅替换"——
+ * 真实项目里这份清单可以写在前端配置，也可以启动时从后端接口拉（模块只消费清单）。
+ * 第二项是"路网"的占位：把 `tiles` 指到本地路网瓦片目录即可真实生效
+ * （没有该目录时切过去会看到缺口底色，说明"整幅替换"确实发生了）。
+ */
+export const DEMO_BASEMAP_DEFS: BasemapDef[] = [
+  {
+    id: 'satellite',
+    name: DEMO_BASEMAPS.local.label,
+    type: 'raster',
+    tiles: '/tiles/raster/{z}/{x}/{y}.jpg',
+    minZoom: 3, maxZoom: 14,
+    attribution: 'Esri, Maxar, Earthstar Geographics, and the GIS User Community',
+  },
+  {
+    id: 'road',
+    name: '本地 · 路网（需自备 tiles/road）',
+    type: 'raster',
+    tiles: '/tiles/road/{z}/{x}/{y}.png',
+    minZoom: 3, maxZoom: 16,
+  },
+  {
+    id: 'demotiles',
+    name: DEMO_BASEMAPS.demotiles.label,
+    type: 'style',
+    styleUrl: 'https://demotiles.maplibre.org/style.json',
+  },
+  {
+    id: 'openfreemap',
+    name: DEMO_BASEMAPS.openfreemap.label,
+    type: 'style',
+    styleUrl: 'https://tiles.openfreemap.org/styles/liberty',
+  },
+  {
+    id: 'cartoDark',
+    name: DEMO_BASEMAPS.cartoDark.label,
+    type: 'style',
+    styleUrl: 'https://tiles.basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+  },
+]
 
 /** 示例图元：覆盖 Draw API 的全部 9 类 */
 export const DEMO_SNAPSHOT: DrawSnapshot = {

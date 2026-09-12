@@ -94,6 +94,10 @@ export class LayerManager {
   private static pulseSeeds: { lng: number; lat: number; color: string; id?: string }[] = []
   /** 被用户关掉的图层分组（跨 init 保留，重新加载样式后由 applyVisibility 恢复） */
   private static hidden = new Set<LayerGroup>()
+  /** 各分组的整体透明度（M2-CTRL-12）；跨样式重建保留 */
+  private static opacity = new Map<LayerGroup, number>()
+  /** 各图层原始的透明度数值（乘系数前的基准），避免反复相乘 */
+  private static baseOpacity = new Map<string, number>()
 
   /** 图层分组显隐（MAP-04：多图层可独立开关） */
   static setGroupVisible(group: LayerGroup, visible: boolean) {
@@ -713,6 +717,93 @@ export class LayerManager {
     }
     this.pulseSeeds = []
     deleteTrailHistory()
+  }
+
+  // ---------------------------------------------------------------- 图层顺序与透明度（M2-CTRL-12）
+
+  /**
+   * 把它组图层移动到参照组之前（`before`）或之后（`after`）。
+   * 用于宿主调整叠放次序，例如让"任务区域"压在"目标"下面。
+   *
+   * 实现说明：MapLibre 的 `moveLayer(id, beforeId)` 要求 beforeId 是**目标位置的下一个**图层；
+   * 这里按组处理——先把该组的全部图层从样式中移出再按顺序插入，保证组内相对次序不变。
+   */
+  static moveGroup(group: LayerGroup, target: LayerGroup, position: 'before' | 'after' = 'before'): boolean {
+    const map = this.map
+    if (!map || group === target) return false
+    const ids = GROUP_LAYERS[group].filter((id) => map.getLayer(id))
+    if (!ids.length) return false
+
+    const anchorIds = GROUP_LAYERS[target].filter((id) => map.getLayer(id))
+    if (!anchorIds.length) return false
+
+    // 先全部摘下（moveLayer 到自身之前相当于原地不动，所以改用"逐个移到锚点前"）
+    for (const id of ids) {
+      if (position === 'before') {
+        map.moveLayer(id, anchorIds[0])
+      } else {
+        // 移到锚点组最后一个图层之后 → 用"移到锚点下一层之前"，没有下一层就直接移到栈顶
+        const anchorLast = anchorIds[anchorIds.length - 1]
+        const order = map.getStyle().layers.map((l) => l.id)
+        const nextIdx = order.indexOf(anchorLast) + 1
+        const nextId = order[nextIdx]
+        if (nextId) map.moveLayer(id, nextId)
+        else map.moveLayer(id)
+      }
+    }
+    return true
+  }
+
+  /** 当前图层从下到上的顺序（只列模块自己的图层，供宿主/调试查看） */
+  static layerOrder(): string[] {
+    const map = this.map
+    if (!map) return []
+    const own = new Set(Object.values(LYR))
+    return map.getStyle().layers.map((l) => l.id).filter((id) => own.has(id))
+  }
+
+  /** 读取某分组的整体透明度（未设置过时返回 1） */
+  static groupOpacity(group: LayerGroup): number {
+    return this.opacity.get(group) ?? 1
+  }
+
+  /**
+   * 设置某分组的整体透明度（0–1）。
+   * 做法：把该组各图层的 `*-opacity` 乘上该系数——因此**保留**图元自身的透明度语义
+   * （例如区域填充本来就 0.1，乘 0.5 后是 0.05），而不是覆盖成固定值。
+   */
+  static setGroupOpacity(group: LayerGroup, opacity: number) {
+    const map = this.map
+    const o = Math.max(0, Math.min(1, opacity))
+    this.opacity.set(group, o)
+    if (!map) return
+
+    for (const id of GROUP_LAYERS[group]) {
+      if (!map.getLayer(id)) continue
+      const layer = map.getStyle().layers.find((l) => l.id === id) as Record<string, unknown> | undefined
+      const base = this.baseOpacity.get(id) ?? this.readBaseOpacity(id)
+      this.baseOpacity.set(id, base)
+      for (const prop of ['fill-opacity', 'line-opacity', 'circle-opacity', 'circle-stroke-opacity', 'icon-opacity', 'text-opacity']) {
+        // 只对"图层真的声明了该透明度属性"的情况设置，避免给不支持的图层瞎设属性
+        if (layer && (layer.paint as Record<string, unknown> | undefined)?.[prop] !== undefined) {
+          try { map.setPaintProperty(id, prop, base * o) } catch { /* 该图层不支持此属性，忽略 */ }
+        }
+      }
+    }
+  }
+
+  /** 读取图层当前的（首个透明度属性的）数值，作为"基准透明度"记住 */
+  private static readBaseOpacity(id: string): number {
+    const map = this.map
+    if (!map) return 1
+    for (const prop of ['fill-opacity', 'line-opacity', 'circle-opacity', 'circle-stroke-opacity', 'text-opacity']) {
+      try {
+        const v = map.getPaintProperty(id, prop as never)
+        if (typeof v === 'number') return v
+        if (Array.isArray(v)) return 1   // 表达式形式（如按要素取值）→ 基准记 1，不再二次换算
+      } catch { /* 不支持则跳过 */ }
+    }
+    return 1
   }
 }
 

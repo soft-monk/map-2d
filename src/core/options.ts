@@ -34,6 +34,8 @@ export const MAP_OPTIONS = {
     zoom: false,
     /** 比例尺（公制） */
     scale: false,
+    /** 地图内图例（M2-CTRL-11） */
+    legend: false,
   },
 
   /**
@@ -49,7 +51,7 @@ export type MapOptions = typeof MAP_OPTIONS
 /** 可开关的地图控件标识（M2-CTRL-01） */
 export type MapControlKey = keyof typeof MAP_OPTIONS.controls
 
-export const ALL_CONTROL_KEYS = ['compass', 'coords', 'zoom', 'scale'] as const satisfies readonly MapControlKey[]
+export const ALL_CONTROL_KEYS = ['compass', 'coords', 'zoom', 'scale', 'legend'] as const satisfies readonly MapControlKey[]
 
 /** 米/像素 → 缩放层级（Web Mercator，取赤道值，偏保守）；用于瓦片精度上限换算 */
 export function metersPerPixelToZoom(mpp: number): number {

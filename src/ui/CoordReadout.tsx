@@ -32,6 +32,7 @@ export const CoordReadout: React.FC<{ dmsFormat?: boolean; style?: React.CSSProp
 
   return (
     <div
+      data-map2d-coords="true"
       style={{
         // 左下角专属：比例尺已移到右下角（见 core/controls.ts 的 POSITION）。
         // 早期两者都在左下角，会**完全重叠**——以后调整定位请一并核对这两处。

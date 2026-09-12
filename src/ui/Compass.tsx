@@ -33,6 +33,7 @@ export const Compass: React.FC<{ size?: number; force?: boolean }> = ({ size = 4
 
   return (
     <div
+      data-map2d-compass="true"
       title="指北针：N 始终指向正北；点击复位正北"
       onClick={() => mapInstance.current?.easeTo({ bearing: 0, duration: 300 })}
       style={{

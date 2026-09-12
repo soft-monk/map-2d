@@ -83,6 +83,26 @@ export const Acceptance: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
         useMapUiStore.getState().toggleLayersPanel()
         say('图层面板已切换（左上「图层」按钮同效）')
         break
+      case '显示图例':
+        mapCommands.toggleControl('legend')
+        say(mapCommands.getControlState().legend ? '图例已显示（左上）' : '图例已隐藏')
+        break
+      case '区域压到最上层':
+        mapCommands.moveLayerGroup('area', 'target', 'after')
+        say('area 已移到 target 之后 → 顺序：' + mapCommands.getLayerOrder().slice(-6).join(' > '))
+        break
+      case '恢复区域原位置':
+        mapCommands.moveLayerGroup('area', 'target', 'before')
+        say('area 已移回 target 之前')
+        break
+      case '目标组半透明':
+        mapCommands.setLayerGroupOpacity('target', 0.35)
+        say('target 组透明度 = ' + mapCommands.getLayerGroupOpacity('target'))
+        break
+      case '目标组恢复不透明':
+        mapCommands.setLayerGroupOpacity('target', 1)
+        say('target 组透明度 = ' + mapCommands.getLayerGroupOpacity('target'))
+        break
       case '只画目标': only(['target']); break
       case '只画航线': only(['route']); break
       case '只画圆形/椭圆/目标区': only(['shape']); break

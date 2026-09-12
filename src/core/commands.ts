@@ -5,6 +5,7 @@ import { MAP_OPTIONS, zoomToMetersPerPixel, type MapControlKey } from './options
 import { showControls, toggleControl, visibleControls, controlState } from './controls'
 import { tileMaxZoomFromOptions, applyTilePrecision } from './tilePrecision'
 import { basemaps, type BasemapDef, type BasemapInfo } from './basemaps'
+import type { LayerGroup } from '../render/LayerManager'
 import { stats as runtimeStats, onPrimitiveError, type PrimitiveError, type RuntimeStats } from './diagnostics'
 import type { MapConfigData, MapViewport } from './types'
 
@@ -127,6 +128,27 @@ export const mapCommands = {
   /** 订阅底图切换通知；返回取消订阅函数 */
   onBasemapChange(fn: (def: BasemapDef | null) => void): () => void {
     return basemaps.onChange(fn)
+  },
+
+  // ------------------------------------------------------------ 图层顺序与透明度（M2-CTRL-12）
+  /** 把某图层分组移动到目标分组之前/之后（调整叠放次序） */
+  moveLayerGroup(group: LayerGroup, target: LayerGroup, position: 'before' | 'after' = 'before') {
+    return LayerManager.moveGroup(group, target, position)
+  },
+
+  /** 当前图层从下到上的顺序（仅模块自己的图层） */
+  getLayerOrder(): string[] {
+    return LayerManager.layerOrder()
+  },
+
+  /** 设置某分组的整体透明度（0–1）；保留图元自身透明度语义 */
+  setLayerGroupOpacity(group: LayerGroup, opacity: number) {
+    LayerManager.setGroupOpacity(group, opacity)
+  },
+
+  /** 读取某分组的透明度（未设置过为 1） */
+  getLayerGroupOpacity(group: LayerGroup): number {
+    return LayerManager.groupOpacity(group)
   },
 
   // ------------------------------------------------------------ 诊断（M2-CTRL-15 / M2-NFR-10）

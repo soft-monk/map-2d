@@ -5,7 +5,7 @@
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { Compass, CoordReadout, LayerPanel, MapDraw, MapView, basemaps, mapCommands, useMapUiStore } from '../index'
+import { Compass, CoordReadout, LayerPanel, Legend, MapDraw, MapView, basemaps, mapCommands, useMapUiStore } from '../index'
 import type { BasemapDef } from '../index'
 import type { MapData } from '../core/types'
 import { DEMO_BASEMAPS, DEMO_BASEMAP_DEFS, DEMO_SNAPSHOT } from './demo-data'
@@ -40,6 +40,7 @@ const CONTROL_LABELS: [import('../index').MapControlKey, string][] = [
   ['coords', '经纬度'],
   ['zoom', '缩放按钮'],
   ['scale', '比例尺'],
+  ['legend', '图例'],
 ]
 
 // 底图清单交给模块的注册表（M2-BASE-09/10/12）：**在渲染前注册**，这样建图时
@@ -135,6 +136,7 @@ const App: React.FC = () => {
         {/* 指北针与经纬度读数都受 controls 开关控制（默认都不显示） */}
         <Compass />
         <CoordReadout />
+        <Legend />
         {/* 功能验收台：已完成能力做成可点按钮，待完成项只读展示（需求完成情况一览） */}
         {!clearMode && <Acceptance />}
       </MapView>

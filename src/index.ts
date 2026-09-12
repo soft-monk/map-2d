@@ -10,6 +10,9 @@ export { MapToolbar, MapModeBadge } from './ui/MapToolbar'
 export { LayerPanel } from './ui/LayerPanel'
 export { Compass } from './ui/Compass'
 export { CoordReadout } from './ui/CoordReadout'
+// 地图内图例（M2-CTRL-11）：内容取自图元真实配色来源
+export { Legend, DEFAULT_LEGEND } from './ui/Legend'
+export type { LegendItem, LegendSection } from './ui/Legend'
 
 export { useMapUiStore, LAYER_GROUPS } from './core/store'
 export { LayerManager, LAYER_GROUP_LABELS, ALL_LAYER_GROUPS } from './render/LayerManager'

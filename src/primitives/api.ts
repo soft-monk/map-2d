@@ -14,6 +14,7 @@ import { onPrimitiveEvent, type PrimitiveEvent } from '../core/primitiveEvents'
 import { annulusToLines, type AnnulusItem } from '../core/annulus'
 import { clusterOptions as _clusterCfg, clusterPoints, filterLabels, labelOptions as _labelCfg, setClusterStats as setLastClusterStats } from '../core/clustering'
 import { resolveStyle } from '../core/theme'
+import { applyDegrade } from '../core/degrade'
 import { renderSymbols } from '../core/symbols'
 import type { LinkState, Threat, UavType } from '../core/types'
 
@@ -382,6 +383,10 @@ function renderKind(kind: PrimitiveKind) {
     bubblesRef = []
     setLastClusterStats({ input: 0, output: 0, active: false })
   }
+
+  // 大数据量降级（M2-NFR-13）：超阈值时抽稀/简化几何。只影响"画出来的"，
+  // 不改动图元集合——list()/export() 始终是全量。
+  items = applyDegrade(kind, items as unknown as Record<string, unknown>[]) as unknown as AnyItem[]
 
   const t0 = performance.now()
   try {

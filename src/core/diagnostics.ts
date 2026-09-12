@@ -7,6 +7,7 @@
 import { mapInstance } from './instance'
 import type { PrimitiveKind } from '../primitives/api'
 import { isDegraded } from './tileFallback'
+import { degradeState, degradeEventCount } from './degrade'
 
 export interface PrimitiveError {
   kind: PrimitiveKind
@@ -29,6 +30,8 @@ export interface RuntimeStats {
   degraded: boolean
   /** 渲染时机合并口径（M2-NFR-14）：写入次数 vs 实际渲染次数 */
   render: RenderTiming
+  /** 渲染降级状态（M2-NFR-13） */
+  degrade: { active: boolean; reasons: string[]; input: number; output: number; events: number }
 }
 
 /** 渲染时机合并的量化口径（M2-NFR-14） */
@@ -171,8 +174,10 @@ export function stats(): RuntimeStats {
     tileCache: cacheSize(),
     lastSubmitMs: +lastSubmitMs.toFixed(2),
     jsHeapMB: mem ? Math.round(mem.usedJSHeapSize / 1048576) : null,
-    degraded: isDegraded(),   // 瓦片源降级状态（M2-MAP-10），此前写死 false
+    // degraded 两层含义：瓦片源不可用（M2-MAP-10）或渲染降级（M2-NFR-13），任一成立即为 true
+    degraded: isDegraded() || degradeState().active,
     render: renderTiming(),
+    degrade: (() => { const d = degradeState(); return { active: d.active, reasons: d.reasons, input: d.input, output: d.output, events: degradeEventCount() } })(),
   }
 }
 

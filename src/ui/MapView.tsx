@@ -17,6 +17,7 @@ import { reapplyTheme } from '../core/theme'
 import { syncDisplayMode } from '../core/displayModeState'
 import { refreshGrid } from '../core/grid'
 import { bindTileFallback, unbindTileFallback } from '../core/tileFallback'
+import { startResourceGuard, stopResourceGuard } from '../core/resources'
 import { BASEMAP_CHANGE_EVENT, basemaps } from '../core/basemaps'
 import { bindPrimitiveEvents } from '../core/primitiveEvents'
 import { setPrimitiveCounter, startFpsCounter } from '../core/diagnostics'
@@ -200,6 +201,7 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
       startFpsCounter()                // 运行指标（M2-CTRL-15）
       map.on('moveend', () => refreshGrid(map))   // 网格随视野重算（M2-MAP-08）
       bindTileFallback(map)            // 瓦片源自动降级监测（M2-MAP-10）
+      startResourceGuard()             // 资源上限巡检（M2-NFR-12）
       setPrimitiveCounter(() => ({     // 各类图元数量：由绘制 API 的集合统计
         area: MapDraw.list('area').length,
         drone: MapDraw.list('drone').length,
@@ -246,6 +248,7 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
     })
 
     return () => {
+      stopResourceGuard()              // 退出资源巡检（M2-NFR-12）
       unbindTileFallback()             // 退出降级监测（M2-MAP-10）
       map.remove()
       mapInstance.current = null

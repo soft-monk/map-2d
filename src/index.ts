@@ -14,6 +14,17 @@ export { CoordReadout } from './ui/CoordReadout'
 export { Legend, DEFAULT_LEGEND } from './ui/Legend'
 // 交互层：手绘 / 图元编辑 / 量算（M2-DRAW-08/12/14、M2-CTRL-10）
 export { DrawLayer } from './ui/DrawLayer'
+// 资源上限与渲染降级（M2-NFR-12 / 13）
+export {
+  setResourceLimits, getResourceLimits, resourceUsage, enforce as enforceResourceLimits,
+  startResourceGuard, stopResourceGuard, resetResourceCounters,
+} from './core/resources'
+export type { ResourceLimits, ResourceUsage } from './core/resources'
+export {
+  setDegradePolicy, getDegradePolicy, degradeState, degradeEventCount, onDegraded,
+  sample as sampleItems, simplifyPath, previewDegrade, resetDegradeState, reportDegradeError,
+} from './core/degrade'
+export type { DegradePolicy, DegradeState } from './core/degrade'
 // 瓦片源降级（M2-MAP-10）与瓦片包校验（M2-BASE-08）
 export {
   bindTileFallback, unbindTileFallback, tileState, isDegraded, onTilesDegraded,

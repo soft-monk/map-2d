@@ -18,6 +18,14 @@ import {
   type ViewState, type RestoreOptions, type ExportImageOptions,
 } from './viewState'
 import { renderTiming } from './diagnostics'
+import {
+  setResourceLimits, getResourceLimits, resourceUsage, enforce,
+  type ResourceLimits, type ResourceUsage,
+} from './resources'
+import {
+  setDegradePolicy, getDegradePolicy, degradeState, onDegraded,
+  type DegradePolicy, type DegradeState,
+} from './degrade'
 import { tileState, onTilesDegraded, type TileDegradeState } from './tileFallback'
 import { validateTiles } from './tileValidation'
 import { setGridKind, gridKind, coordinateReadout, toMGRS, type GridKind } from './grid'
@@ -178,6 +186,39 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 资源上限与渲染降级（M2-NFR-12 / 13）
+  /** 设置资源上限（图元条数/瓦片缓存/错误保留）；{enabled:false} 可只统计不淘汰 */
+  setResourceLimits(patch: Partial<ResourceLimits>) {
+    return setResourceLimits(patch)
+  },
+  getResourceLimits() {
+    return getResourceLimits()
+  },
+  /** 当前资源占用（图元条数、各源瓦片缓存、JS 堆、累计淘汰次数） */
+  getResourceUsage() {
+    return resourceUsage()
+  },
+  /** 立即执行一次淘汰（不等周期巡检） */
+  enforceResourceLimits() {
+    return enforce()
+  },
+
+  /** 设置渲染降级策略（超阈值抽稀/简化几何） */
+  setDegradePolicy(patch: Partial<DegradePolicy>) {
+    return setDegradePolicy(patch)
+  },
+  getDegradePolicy() {
+    return getDegradePolicy()
+  },
+  /** 当前降级状态（是否降级、原因、原始/实际条数、简化几何数） */
+  getDegradeState() {
+    return degradeState()
+  },
+  /** 订阅降级状态变化（宿主可提示"当前为降级显示"） */
+  onDegraded(fn: (s: DegradeState) => void) {
+    return onDegraded(fn)
   },
 
   // ------------------------------------------------------------ 瓦片源降级与瓦片包校验

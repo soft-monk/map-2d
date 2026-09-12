@@ -214,6 +214,9 @@ npm run dev
 | **图元编辑** | 拖动顶点手柄改形状，可插入/删除顶点（有顶点数下限保护） | `mapCommands.editPrimitive('area','A-1')`、`insertVertexAt`、`removeVertexAt` |
 | **量算与几何计算** | 测距/测面/方位角；球面公式内联实现，不引第三方库 | `mapCommands.getMeasurement()`、`distanceMeters`、`polygonAreaM2`、`bearingDeg` |
 | **键盘操作** | 方向键平移、+/- 缩放、Esc 取消、Enter 完成、Backspace 退点 | 内置，输入框内不接管 |
+| **视图状态存档** | 视角/图层开关/透明度/控件/底图/精度上限/图元 一次导出、一次恢复 | `mapCommands.exportViewState()` / `restoreViewState(state)` |
+| **图片导出** | 当前地图导出为 PNG/JPEG，可选是否把已开启控件合成进去 | `mapCommands.exportImage()` / `downloadImage()` |
+| **渲染时机可观测** | 写入次数 vs 实际渲染次数（批量把 50 次写入合并为 1 次渲染） | `mapCommands.getRenderTiming()` |
 | 接口文档 / 类型自带 / 模块开关集中 | 看文档即可接入 | [doc/接口文档.md](doc/接口文档.md) |
 
 > **注**：控件默认不显示是模块的规矩；**宿主需要谁就自己开**。主系统在启动时调了一次
@@ -231,7 +234,7 @@ npm run dev
 | **工程性** | 性能基线维护、资源上限、大数据量降级、多实例隔离、错误边界 |
 | **观感遗留** | 缩放/拖拽时偶发的深蓝灰方块（已定位成因，曾试一版体感变卡顿已回退） |
 
-完整条目、验收标准与决策记录见 [doc/需求文档.md](doc/需求文档.md)。当前 **93 条需求中已完成 66 条**。
+完整条目、验收标准与决策记录见 [doc/需求文档.md](doc/需求文档.md)。当前 **93 条需求中已完成 72 条**。
 
 ---
 

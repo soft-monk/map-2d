@@ -34,6 +34,11 @@ export const Acceptance: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
   const [log, setLog] = React.useState<string[]>([])
   const [stats, setStats] = React.useState(() => runtimeStats())
   const [subscribed, setSubscribed] = React.useState(false)
+  /** 最近一次导出的视图状态（"打乱后恢复"按钮用） */
+  const savedStateRef = React.useRef<Awaited<ReturnType<typeof mapCommands.exportViewState>> | null>(null)
+  /** 最近一次导出的图片 dataURL（供界面预览） */
+  const [exportedImage, setExportedImage] = React.useState<string | null>(null)
+  void exportedImage
   const controls = useMapUiStore((s) => s.controls)
 
   const say = React.useCallback((msg: string) => {
@@ -197,6 +202,55 @@ export const Acceptance: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
         MapDraw.add('scan', { id: 'dirty-3', lng: 116.4, lat: 39.9, radiusKm: 0 })
         const errs = recentErrors().map((e) => `${e.kind}/${e.id}:${e.reason}`)
         say(`脏数据被跳过并上报 ${errs.length} 条 → ${errs.join('；')}`)
+        break
+      }
+      case '导出视图状态': {
+        void mapCommands.exportViewState().then((s) => {
+          savedStateRef.current = s
+          say('已导出视图状态：' + Object.keys(s).join(', '))
+        })
+        break
+      }
+      case '打乱后恢复状态': {
+        if (!savedStateRef.current) { say('请先点「导出视图状态」'); break }
+        // 故意打乱：换视角、关控件、清图元
+        mapCommands.setView(121.4737, 31.2304, 6)
+        mapCommands.showControls(['compass', 'legend', 'coords', 'zoom', 'scale'], false)
+        MapDraw.clear()
+        say('已打乱（视角移到上海、控件全关、图元清空），1 秒后恢复…')
+        window.setTimeout(() => {
+          void mapCommands.restoreViewState(savedStateRef.current!).then((r) => {
+            const vp = mapCommands.getViewport()
+            const total = KINDS.reduce((n, k) => n + MapDraw.list(k).length, 0)
+            say(r.ok
+              ? `已恢复：${r.applied.join('、')}；当前视角 ${vp.lng.toFixed(3)},${vp.lat.toFixed(3)} z${vp.zoom}；图元 ${total} 个`
+              : `恢复失败：${r.reason}`)
+          })
+        }, 1000)
+        break
+      }
+      case '图片导出（带控件）': {
+        void mapCommands.exportImage({ withControls: true }).then((url) => {
+          const img = new Image()
+          img.src = url
+          img.onload = () => say(`已导出 PNG：${img.naturalWidth}×${img.naturalHeight}，约 ${Math.round((url.length * 0.75) / 1024)} KB（含控件底色）`)
+          setExportedImage(url)
+        })
+        break
+      }
+      case '对比批量与非批量': {
+        MapDraw.clear('label')
+        const w0 = mapCommands.getRenderTiming()
+        for (let i = 0; i < 50; i++) MapDraw.add('label', { id: 'RT' + i, lng: 116.30 + i * 1e-4, lat: 39.95, text: 'x' })
+        const w1 = mapCommands.getRenderTiming()
+        MapDraw.clear('label')
+        mapCommands.setView(116.3974, 39.9093, 12)
+        const w2 = mapCommands.getRenderTiming()
+        MapDraw.batch(() => {
+          for (let i = 0; i < 50; i++) MapDraw.add('label', { id: 'RB' + i, lng: 116.32 + i * 1e-4, lat: 39.95, text: 'y' })
+        })
+        const w3 = mapCommands.getRenderTiming()
+        say(`非批量：写入 ${w1.writes - w0.writes} 次 → 渲染 ${w1.renders - w0.renders} 次；批量：写入 ${w3.writes - w2.writes} 次 → 渲染 ${w3.renders - w2.renders} 次`)
         break
       }
       case '刷新指标':

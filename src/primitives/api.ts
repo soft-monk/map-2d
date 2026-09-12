@@ -9,7 +9,7 @@
 import { mapInstance, layersReady } from '../core/instance'
 import { LayerManager } from '../render/LayerManager'
 import { filterValid } from '../core/validate'
-import { recordSubmit, reportPrimitiveError } from '../core/diagnostics'
+import { recordRender, recordSubmit, recordWrite, reportPrimitiveError } from '../core/diagnostics'
 import { onPrimitiveEvent, type PrimitiveEvent } from '../core/primitiveEvents'
 import type { LinkState, Threat, UavType } from '../core/types'
 
@@ -290,6 +290,7 @@ function renderKind(kind: PrimitiveKind) {
 }
 
 function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
+  recordRender()                      // 真正落到数据源的渲染次数（M2-NFR-14 口径）
   switch (kind) {
     case 'area':
       LayerManager.setAreaFeatures(fc((items as AreaItem[]).map((a) =>
@@ -380,7 +381,8 @@ let batchDepth = 0
 const dirty = new Set<PrimitiveKind>()
 
 function markDirty(kind: PrimitiveKind) {
-  if (batchDepth > 0) dirty.add(kind)
+  recordWrite()                       // 写入次数（不等价于渲染次数）
+  if (batchDepth > 0) dirty.add(kind) // 批内只攒着，退出批次时合并成一次渲染
   else renderKind(kind)
 }
 

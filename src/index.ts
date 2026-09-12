@@ -21,6 +21,12 @@ export {
   fmtDistance, fmtArea, verticesOf, withVertices, isEditableShape, insertVertex, removeVertex, snapTo,
 } from './core/geometry'
 export type { LngLat } from './core/geometry'
+// 视图状态序列化与图片导出（M2-API-08 / M2-API-09）
+export { exportViewState, restoreViewState, exportImage, downloadImage } from './core/viewState'
+export type { ViewState, RestoreOptions, ExportImageOptions } from './core/viewState'
+// 渲染时机计数（M2-NFR-14）
+export { renderTiming, recordWrite, recordRender } from './core/diagnostics'
+export type { RenderTiming } from './core/diagnostics'
 export type { LegendItem, LegendSection } from './ui/Legend'
 
 export { useMapUiStore, LAYER_GROUPS } from './core/store'

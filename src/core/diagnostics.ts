@@ -26,11 +26,68 @@ export interface RuntimeStats {
   jsHeapMB: number | null
   /** 是否处于降级状态（大数据量降级，暂未启用时为 false） */
   degraded: boolean
+  /** 渲染时机合并口径（M2-NFR-14）：写入次数 vs 实际渲染次数 */
+  render: RenderTiming
+}
+
+/** 渲染时机合并的量化口径（M2-NFR-14） */
+export interface RenderTiming {
+  /** 图元写入次数（set/add/remove/batch 内的每次调用都算） */
+  writes: number
+  /** 实际落到地图源上的渲染次数（setData 次数） */
+  renders: number
+  /** 被合并掉的次数（writes − renders，批量提交的收益） */
+  coalesced: number
+  /** 最近一秒内的写入次数 / 渲染次数（判断高频更新是否被合并） */
+  writesPerSec: number
+  rendersPerSec: number
 }
 
 const errorHandlers = new Set<(e: PrimitiveError) => void>()
 const errors: PrimitiveError[] = []
 let lastSubmitMs = 0
+
+// ---- 渲染时机计数（M2-NFR-14） ----
+let writes = 0
+let renders = 0
+let winStart = 0
+let winWrites = 0
+let winRenders = 0
+let writesPerSec = 0
+let rendersPerSec = 0
+
+function tickWindow() {
+  const now = performance.now()
+  if (!winStart) { winStart = now; return }
+  const dt = now - winStart
+  if (dt >= 1000) {
+    writesPerSec = Math.round((winWrites * 1000) / dt)
+    rendersPerSec = Math.round((winRenders * 1000) / dt)
+    winStart = now
+    winWrites = 0
+    winRenders = 0
+  }
+}
+
+/** 绘制 API 调用：记录一次图元写入（不代表一次渲染） */
+export function recordWrite() {
+  writes++
+  winWrites++
+  tickWindow()
+}
+
+/** 渲染层调用：记录一次真正落到数据源的渲染（setData） */
+export function recordRender() {
+  renders++
+  winRenders++
+  tickWindow()
+}
+
+/** 读取渲染时机计数 */
+export function renderTiming(): RenderTiming {
+  tickWindow()
+  return { writes, renders, coalesced: Math.max(0, writes - renders), writesPerSec, rendersPerSec }
+}
 
 /** 渲染层调用：记录一次图元提交耗时 */
 export function recordSubmit(ms: number) {
@@ -114,6 +171,7 @@ export function stats(): RuntimeStats {
     lastSubmitMs: +lastSubmitMs.toFixed(2),
     jsHeapMB: mem ? Math.round(mem.usedJSHeapSize / 1048576) : null,
     degraded: false,
+    render: renderTiming(),
   }
 }
 

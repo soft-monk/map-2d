@@ -214,6 +214,10 @@ export const ACCEPTED_FEATURES: AcceptedFeature[] = [
   { domain: '图元事件', ids: 'M2-DRAW-13', label: '订阅点击（看提示）', expect: '订阅后点任意图元，右上角显示 kind:id；点空白无反应' },
   { domain: '错误边界', ids: 'M2-NFR-10', label: '注入 3 条脏数据', expect: '脏数据逐条跳过并上报，合法图元照常渲染' },
   { domain: '运行指标', ids: 'M2-CTRL-15', label: '刷新指标', expect: '显示帧率/各类图元数/瓦片缓存/最近提交耗时/JS 堆' },
+  { domain: '状态与导出', ids: 'M2-API-08', label: '导出视图状态', expect: '日志显示快照字段（视角/图层开关/控件/底图/精度上限/图元）' },
+  { domain: '状态与导出', ids: 'M2-API-08', label: '打乱后恢复状态', expect: '换视角+关控件+清图元后恢复，六项逐项回到导出前' },
+  { domain: '状态与导出', ids: 'M2-API-09', label: '图片导出（带控件）', expect: '生成与画布同尺寸的 PNG；含指北针/经纬度/图例/比例尺底色' },
+  { domain: '状态与导出', ids: 'M2-NFR-14', label: '对比批量与非批量', expect: '日志显示：批量 50 写入→1 渲染；非批量 50 写入→50 渲染' },
 ]
 
 /** 待完成清单（与《需求文档》§6 一致，共 35 条） */

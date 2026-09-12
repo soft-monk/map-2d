@@ -13,6 +13,11 @@ import {
   verticesOf, withVertices, type LngLat,
 } from './geometry'
 import { MapDraw, type PrimitiveKind } from '../primitives/api'
+import {
+  exportViewState, restoreViewState, exportImage, downloadImage,
+  type ViewState, type RestoreOptions, type ExportImageOptions,
+} from './viewState'
+import { renderTiming } from './diagnostics'
 import type { MapConfigData, MapViewport } from './types'
 
 export const mapCommands = {
@@ -155,6 +160,34 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 视图状态与导出（M2-API-08 / M2-API-09）
+  /** 导出当前视图状态（视角/显示模式/图层开关/透明度/控件/底图/精度上限，默认含图元） */
+  async exportViewState(opts: { withPrimitives?: boolean } = {}) {
+    return exportViewState(opts)
+  },
+
+  /** 恢复视图状态（传入 exportViewState 的结果或其中一个子集） */
+  async restoreViewState(state: Partial<ViewState>, opts: RestoreOptions = {}) {
+    return restoreViewState(state, opts)
+  },
+
+  /** 导出当前地图为图片（dataURL） */
+  async exportImage(opts: ExportImageOptions = {}) {
+    return exportImage(opts)
+  },
+
+  /** 导出并触发下载 */
+  async downloadImage(filename?: string, opts: ExportImageOptions = {}) {
+    const url = await exportImage(opts)
+    downloadImage(url, filename)
+    return url
+  },
+
+  /** 渲染时机计数（M2-NFR-14）：写入次数 / 渲染次数 / 合并次数 */
+  getRenderTiming() {
+    return renderTiming()
   },
 
   // ------------------------------------------------------------ 手绘 / 编辑 / 量算

@@ -122,6 +122,32 @@ const App: React.FC = () => {
             </button>
             <button style={barButton} onClick={toggleClearMode}>清屏</button>
             <button style={barButton} onClick={() => mapCommands.resetView(config)}>复位视角</button>
+            <button
+              style={barButton}
+              title="导出当前地图为图片（含已开启的控件）—— M2-API-09"
+              onClick={() => void mapCommands.downloadImage()}
+            >导出图片</button>
+            <button
+              style={barButton}
+              title="导出当前视图状态到 localStorage —— M2-API-08"
+              onClick={() => {
+                void mapCommands.exportViewState().then((s) => {
+                  localStorage.setItem('map2d-view-state', JSON.stringify(s))
+                  window.alert('已保存视图状态（视角/图层开关/控件/底图/图元）\n字段：' + Object.keys(s).join(', '))
+                })
+              }}
+            >保存视角</button>
+            <button
+              style={barButton}
+              title="从 localStorage 恢复视图状态 —— M2-API-08"
+              onClick={() => {
+                const raw = localStorage.getItem('map2d-view-state')
+                if (!raw) { window.alert('还没有保存过视图状态'); return }
+                void mapCommands.restoreViewState(JSON.parse(raw)).then((r) => {
+                  window.alert(r.ok ? '已恢复：' + r.applied.join('、') : '恢复失败：' + r.reason)
+                })
+              }}
+            >恢复视角</button>
 
             {/* 绘制与量算（M2-DRAW-08 / M2-CTRL-10）：与工具条同一套能力，这里做成按钮组 */}
             <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 6 }}>绘制：</span>

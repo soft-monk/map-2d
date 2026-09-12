@@ -6,14 +6,18 @@
 //
 // 说明：本层只做「数据 → GeoJSON → LayerManager」的转换与集合管理，
 // 不涉及鼠标手绘交互（手绘留待后续版本）。
-import { mapInstance } from '../core/instance'
+import { mapInstance, layersReady } from '../core/instance'
 import { LayerManager } from '../render/LayerManager'
 import { filterValid } from '../core/validate'
 import { recordSubmit, reportPrimitiveError } from '../core/diagnostics'
+import { onPrimitiveEvent, type PrimitiveEvent } from '../core/primitiveEvents'
 import type { LinkState, Threat, UavType } from '../core/types'
 
 // ---------------------------------------------------------------- 图元类型
-export type PrimitiveKind = 'area' | 'drone' | 'target' | 'link' | 'track' | 'scan' | 'pulse' | 'cluster' | 'label'
+export type PrimitiveKind =
+  | 'area' | 'drone' | 'target' | 'link' | 'track' | 'scan' | 'pulse' | 'cluster' | 'label'
+  // 需求 M2-DRAW-01 补全：航线、圆形/椭圆区域、目标区域
+  | 'route' | 'shape'
 
 export interface AreaItem {
   id: string
@@ -119,6 +123,54 @@ export interface LabelItem {
   radius?: number
 }
 
+// ---------------------------------------------------------------- 需求 M2-DRAW-01 补全的图元
+
+/** 无人机航线：一条计划/实际航线（折线） */
+export interface RouteItem {
+  id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
+  /** 航线途经点（至少 2 个） */
+  points: [number, number][]
+  color?: string
+  /** 是否虚线（计划航线通常用虚线，默认 false） */
+  dashed?: boolean
+  /** 名称（不渲染文字，仅数据字段；需要文字请另用 label 图元） */
+  name?: string
+}
+
+/**
+ * 圆形 / 椭圆形区域，以及目标区域（打击区 / 侦察区）。
+ *
+ * - 圆形：`lng/lat` + `radiusKm`
+ * - 椭圆：再加 `radiusKmMinor`（短半轴）
+ * - 目标区域：`kind: 'target'`（默认样式为红色实线）；`kind: 'search'` 为搜索区（虚线）
+ *
+ * 半径按**公里**表达，模块按当前缩放换算成度并生成多边形（与扫描图元同一套地理尺度语义）。
+ */
+export interface ShapeItem {
+  id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
+  lng: number
+  lat: number
+  /** 主半径（公里） */
+  radiusKm: number
+  /** 短半轴（公里）；不给即为正圆 */
+  radiusKmMinor?: number
+  /** 长轴方位角（度，正北为 0，顺时针） */
+  rotation?: number
+  /** 语义：普通图形 / 目标区域（默认红色实线）/ 搜索区（虚线） */
+  kind?: 'plain' | 'target' | 'search'
+  color?: string
+  opacity?: number
+  /** 线宽（px） */
+  weight?: number
+  /** 是否虚线（不给则按 kind 推导：search 为虚线） */
+  dashed?: boolean
+  label?: string
+}
+
 export interface DrawSnapshot {
   area: AreaItem[]
   drone: DroneItem[]
@@ -129,6 +181,10 @@ export interface DrawSnapshot {
   pulse: PulseItem[]
   cluster: ClusterItem[]
   label: LabelItem[]
+  /** 无人机航线（M2-DRAW-01） */
+  route: RouteItem[]
+  /** 圆形 / 椭圆形区域、目标区域（M2-DRAW-01） */
+  shape: ShapeItem[]
 }
 
 // ---------------------------------------------------------------- 调色板
@@ -143,19 +199,25 @@ const C = {
   pulse: '#22d3ee',
   cluster: '#8b5cf6',
   label: '#cfe3f5',
+  route: '#22d3ee',
+  shape: '#3b82f6',
+  target: '#ef4444',
+  search: '#f59e0b',
 }
 
 // ---------------------------------------------------------------- 内部集合
-type AnyItem = AreaItem | DroneItem | TargetItem | LinkItem | TrackItem | ScanItem | PulseItem | ClusterItem | LabelItem
+type AnyItem =
+  | AreaItem | DroneItem | TargetItem | LinkItem | TrackItem | ScanItem | PulseItem | ClusterItem | LabelItem
+  | RouteItem | ShapeItem
 
 const bags: Record<PrimitiveKind, Map<string, AnyItem>> = {
   area: new Map(), drone: new Map(), target: new Map(), link: new Map(),
   track: new Map(), scan: new Map(), pulse: new Map(), cluster: new Map(), label: new Map(),
+  route: new Map(), shape: new Map(),
 }
 
 /** 公里 → 像素（Web Mercator，按当前缩放） */
-function kmToPixels(km: number, lat: number): number {
-  const zoom = mapInstance.current?.getZoom() ?? 11
+function kmToPixels(km: number, lat: number): number {  const zoom = mapInstance.current?.getZoom() ?? 11
   const metersPerPixel = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, zoom)
   return Math.max(2, (km * 1000) / metersPerPixel)
 }
@@ -177,10 +239,44 @@ const polygon = (ring: [number, number][], properties: Record<string, unknown>):
   return { type: 'Feature', properties, geometry: { type: 'Polygon', coordinates: [closed] } }
 }
 
+/**
+ * 圆 / 椭圆 → 多边形环（需求 M2-DRAW-01）。
+ * 半径用公里表达（地理尺度，与扫描图元一致），按纬度换算成经度/纬度方向的度数：
+ *   纬度 1° ≈ 110.574 km（近似恒定）；经度 1° ≈ 111.320 × cos(lat) km。
+ * 椭圆用 `radiusKmMinor`（短半轴）+ `rotation`（长轴方位角，正北为 0，顺时针）表达。
+ */
+function ellipseRing(s: ShapeItem, segments = 72): [number, number][] {
+  const R = 6371.0088 // 地球平均半径 km
+  const rad = (d: number) => (d * Math.PI) / 180
+  const deg = (r: number) => (r * 180) / Math.PI
+
+  const a = s.radiusKm // 长半轴（km）
+  const b = s.radiusKmMinor ?? s.radiusKm // 短半轴（km）
+  const rot = rad(s.rotation ?? 0)
+  const latRad = rad(s.lat)
+  const cosLat = Math.max(1e-6, Math.cos(latRad))
+
+  const ring: [number, number][] = []
+  for (let i = 0; i < segments; i++) {
+    const t = (i / segments) * Math.PI * 2
+    // 以中心为原点的局部平面坐标（东 x，北 y）
+    const x = a * Math.cos(t)
+    const y = b * Math.sin(t)
+    // 按方位角旋转（正北 0、顺时针：北向分量 = x·sin + y·cos）
+    const east = x * Math.cos(rot) + y * Math.sin(rot)
+    const north = -x * Math.sin(rot) + y * Math.cos(rot)
+    const dLat = deg(north / R)
+    const dLng = deg(east / (R * cosLat))
+    ring.push([s.lng + dLng, s.lat + dLat])
+  }
+  return ring
+}
+
 // ---------------------------------------------------------------- 渲染
 // 单个图元显隐（M2-DRAW-03）：visible === false 的项**不画**，但数据仍在集合里
 // （list() 读得到、export() 包含），重新显示无需重新灌数据。
 function renderKind(kind: PrimitiveKind) {
+  if (!layersAvailable()) return   // 图层未建立：先攒着，MapView 就绪后 renderAll 统一补画
   const items = [...bags[kind].values()].filter((it) => (it as { visible?: boolean }).visible !== false)
   const t0 = performance.now()
   try {
@@ -197,11 +293,11 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
   switch (kind) {
     case 'area':
       LayerManager.setAreaFeatures(fc((items as AreaItem[]).map((a) =>
-        polygon(a.polygon, { color: a.color ?? C.area, label: a.label ?? '', opacity: a.opacity ?? 0.1 }))))
+        polygon(a.polygon, { id: a.id, color: a.color ?? C.area, label: a.label ?? '', opacity: a.opacity ?? 0.1 }))))
       break
     case 'drone':
       LayerManager.setUavFeatures(fc((items as DroneItem[]).map((d) =>
-        point(d.lng, d.lat, { label: d.label ?? d.id, color: d.color ?? C.drone[d.type ?? ''] ?? C.area }))))
+        point(d.lng, d.lat, { id: d.id, label: d.label ?? d.id, color: d.color ?? C.drone[d.type ?? ''] ?? C.area }))))
       break
     case 'target':
       LayerManager.setTargetFeatures(fc((items as TargetItem[]).map((t) => point(t.lng, t.lat, {
@@ -214,15 +310,16 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
       break
     case 'link':
       LayerManager.setLinkFeatures(fc((items as LinkItem[]).map((l) =>
-        line([l.from, l.to], { color: l.color ?? C.link[l.state ?? ''] ?? C.link.green, state: l.state ?? 'green', name: l.label ?? l.id }))))
+        line([l.from, l.to], { id: l.id, color: l.color ?? C.link[l.state ?? ''] ?? C.link.green, state: l.state ?? 'green', name: l.label ?? l.id }))))
       break
     case 'track':
       LayerManager.setTrackFeatures(fc((items as TrackItem[]).map((t) =>
-        line(t.points, { color: t.color ?? C.track, dashed: t.dashed ?? true }))))
+        line(t.points, { id: t.id, color: t.color ?? C.track, dashed: t.dashed ?? true }))))
       break
     case 'scan':
       LayerManager.setScanFeatures(fc((items as ScanItem[]).map((s) =>
         point(s.lng, s.lat, {
+          id: s.id,
           color: s.color ?? C.scan,
           r: kmToPixels(s.radiusKm, s.lat),
           label: s.label ?? '',
@@ -230,16 +327,33 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
       break
     case 'pulse':
       LayerManager.setPulseSeedsPublic((items as PulseItem[]).map((p) => ({
-        lng: p.lng, lat: p.lat, color: p.color ?? C.pulse,
+        id: p.id, lng: p.lng, lat: p.lat, color: p.color ?? C.pulse,
       })))
       break
     case 'cluster':
       LayerManager.setGroupFeatures(fc((items as ClusterItem[]).map((c) =>
-        point(c.lng, c.lat, { name: c.name ?? c.id, color: c.color ?? C.cluster }))))
+        point(c.lng, c.lat, { id: c.id, name: c.name ?? c.id, color: c.color ?? C.cluster }))))
       break
     case 'label':
       LayerManager.setMarkers(fc((items as LabelItem[]).map((m) =>
-        point(m.lng, m.lat, { text: m.text, color: m.color ?? C.label, size: m.size ?? 11, r: m.radius ?? 0 }))))
+        point(m.lng, m.lat, { id: m.id, text: m.text, color: m.color ?? C.label, size: m.size ?? 11, r: m.radius ?? 0 }))))
+      break
+    case 'route':
+      LayerManager.setRouteFeatures(fc((items as RouteItem[]).map((r) =>
+        line(r.points, { id: r.id, color: r.color ?? C.route, dashed: r.dashed ?? false, name: r.name ?? r.id }))))
+      break
+    case 'shape':
+      LayerManager.setShapeFeatures(fc((items as ShapeItem[]).map((s) => {
+        const color = s.color ?? (s.kind === 'target' ? C.target : s.kind === 'search' ? C.search : C.shape)
+        return polygon(ellipseRing(s), {
+          id: s.id,
+          color,
+          opacity: s.opacity ?? 0.12,
+          weight: s.weight ?? (s.kind === 'plain' ? 1.4 : 1.8),
+          dashed: s.dashed ?? (s.kind === 'search'),
+          label: s.label ?? '',
+        })
+      })))
       break
   }
 }
@@ -268,6 +382,15 @@ const dirty = new Set<PrimitiveKind>()
 function markDirty(kind: PrimitiveKind) {
   if (batchDepth > 0) dirty.add(kind)
   else renderKind(kind)
+}
+
+/**
+ * 图层是否已建立。未建立时数据仍会进入集合（list/export 正确），
+ * 但不会去写不存在的源——等 `MapView` 在 load 后调用 `renderAll()` 一次性补齐。
+ * 这样"建图前就灌数据"不会静默丢失（曾经的坑：演示宿主 isReady 判据不对导致图元不显示）。
+ */
+function layersAvailable(): boolean {
+  return layersReady.current && !!mapInstance.current
 }
 
 function flushDirty(): PrimitiveKind[] {
@@ -332,6 +455,15 @@ export const MapDraw = {
     return { result, kinds }
   },
 
+  // -------------------------------------------------------------- 事件订阅（M2-DRAW-13）
+  /**
+   * 订阅图元交互事件。等价于 `onPrimitiveEvent`，放在这里是为了"绘制 API 上就能订阅"的心智一致。
+   * `click` 只在点到图元时触发；`hover` 同一图元不重复触发。
+   */
+  on(name: 'click' | 'hover', fn: (e: PrimitiveEvent) => void): () => void {
+    return onPrimitiveEvent(name, fn)
+  },
+
   // -------------------------------------------------------------- 单个图元显隐（M2-DRAW-03）
   /** 隐藏某类里的一个图元（数据保留） */
   hide(kind: PrimitiveKind, id: string) {
@@ -387,6 +519,7 @@ export const MapDraw = {
       area: this.list('area'), drone: this.list('drone'), target: this.list('target'),
       link: this.list('link'), track: this.list('track'), scan: this.list('scan'),
       pulse: this.list('pulse'), cluster: this.list('cluster'), label: this.list('label'),
+      route: this.list('route'), shape: this.list('shape'),
     }
   },
 

@@ -13,7 +13,9 @@ import './standalone.css'
 
 const BASE_DATA: Omit<MapData, 'config'> = {
   scenarioKey: 'demo',
-  phase: 'T0',
+  // 演示用 T4：此时阶段规则允许"目标 / 无人机 / 扫描 / 脉冲 / 链路 / 区域 / 航线"同时可见，
+  // 才能一次看全 11 类图元。T0–T2 按阶段规则不显示目标与无人机（这是设计如此，不是缺陷）。
+  phase: 'T4',
   targets: [],
   groups: [],
   uavs: [],

@@ -146,4 +146,21 @@ export const DEMO_SNAPSHOT: DrawSnapshot = {
     { id: 'M-1', lng: 116.3974, lat: 39.9093, text: '前沿指挥节点', color: '#22d3ee', radius: 5, size: 12 },
     { id: 'M-2', lng: 116.335, lat: 39.955, text: '任务区域北界', color: '#8fb0cc', radius: 0, size: 11 },
   ],
+  // 需求 M2-DRAW-01 补全的图元：航线 / 圆形·椭圆区域 / 目标区域
+  route: [
+    {
+      id: 'R-1', color: '#22d3ee', dashed: true, name: '光电-01 侦察航线',
+      points: [[116.330, 39.940], [116.365, 39.955], [116.400, 39.950], [116.430, 39.930]],
+    },
+    {
+      id: 'R-2', color: '#f59e0b', dashed: true, name: '雷达-02 巡逻航线',
+      points: [[116.420, 39.880], [116.470, 39.895], [116.500, 39.870], [116.455, 39.850]],
+    },
+  ],
+  shape: [
+    { id: 'C-1', lng: 116.365, lat: 39.912, radiusKm: 4, color: '#38bdf8', label: '光电侦察圈 R=4km' },
+    { id: 'E-1', lng: 116.470, lat: 39.905, radiusKm: 9, radiusKmMinor: 4, rotation: 35, color: '#a855f7', label: '雷达探测椭圆 9×4km' },
+    { id: 'TG-1', lng: 116.452, lat: 39.878, radiusKm: 2.2, kind: 'target', color: '#ef4444', label: '目标 001 打击区' },
+    { id: 'SR-1', lng: 116.361, lat: 39.842, radiusKm: 3.5, kind: 'search', label: '后勤点搜索区' },
+  ],
 }

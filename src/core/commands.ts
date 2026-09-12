@@ -1,5 +1,5 @@
 // map-2d · 视角命令（命令式 API，宿主可主动控制地图）
-import { mapInstance } from './instance'
+import { mapInstance, layersReady } from './instance'
 import { LayerManager } from '../render/LayerManager'
 import { MAP_OPTIONS, zoomToMetersPerPixel, type MapControlKey } from './options'
 import { showControls, toggleControl, visibleControls, controlState } from './controls'
@@ -52,9 +52,15 @@ export const mapCommands = {
     return { lng: c.lng, lat: c.lat, zoom: map.getZoom(), bearing: map.getBearing() }
   },
 
-  /** 未初始化时返回 false，宿主可据此决定何时调用 */
+  /**
+   * 地图是否**可画**（图层已建立）。
+   *
+   * 注意：判据不是"实例是否创建"——`new Map()` 之后实例立即有值，但那时数据源还没建立，
+   * 此时写图元会落到不存在的源上。模块内部已对这种情况做了排队（数据保留、就绪后补画），
+   * 但宿主最好等本方法返回 true 再灌数据，语义最清晰。
+   */
   isReady(): boolean {
-    return !!mapInstance.current
+    return layersReady.current && !!mapInstance.current
   },
 
   // ------------------------------------------------------------ 控件按需显示（M2-CTRL-01 ~ 05）

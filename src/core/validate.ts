@@ -53,6 +53,21 @@ export function validatePrimitive(kind: PrimitiveKind, item: unknown): string | 
     case 'track':
       if (!needArray(it.points) || (it.points as unknown[]).length < 2) return 'points 少于 2 个点'
       return null
+    case 'route':
+      if (!needArray(it.points) || (it.points as unknown[]).length < 2) return '航线 points 少于 2 个点'
+      for (const p of it.points as unknown[]) {
+        if (!needArray(p) || (p as unknown[]).length < 2 || !needNumber((p as number[])[0]) || !needNumber((p as number[])[1])) {
+          return '航线顶点不是 [lng,lat]'
+        }
+      }
+      return null
+    case 'shape':
+      if (!needNumber(it.lng) || !needNumber(it.lat)) return '缺少有效 lng/lat'
+      if (!needNumber(it.radiusKm) || (it.radiusKm as number) <= 0) return 'radiusKm 无效'
+      if (it.radiusKmMinor != null && (!needNumber(it.radiusKmMinor) || (it.radiusKmMinor as number) <= 0)) {
+        return 'radiusKmMinor 无效'
+      }
+      return null
     default:
       return null
   }

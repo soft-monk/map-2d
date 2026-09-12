@@ -17,6 +17,8 @@ const SRC = {
   trail: 'src-trail',
   pulse: 'src-pulse',
   mark: 'src-mark',
+  route: 'src-route',
+  shape: 'src-shape',
 }
 
 const LYR = {
@@ -38,12 +40,18 @@ const LYR = {
   pulse: 'lyr-pulse',
   mark: 'lyr-mark',
   markLabel: 'lyr-mark-label',
+  route: 'lyr-route',
+  routeDashed: 'lyr-route-dashed',
+  routeGlow: 'lyr-route-glow',
+  shapeFill: 'lyr-shape-fill',
+  shapeLine: 'lyr-shape-line',
+  shapeLineDashed: 'lyr-shape-line-dashed',
 }
 
 const emptyFC = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] })
 
 /** 可独立开关的图层分组（对外公开，供图层开关面板使用） */
-export type LayerGroup = 'area' | 'pulse' | 'scan' | 'link' | 'group' | 'track' | 'trail' | 'target' | 'uav' | 'mark'
+export type LayerGroup = 'area' | 'pulse' | 'scan' | 'link' | 'group' | 'track' | 'trail' | 'target' | 'uav' | 'mark' | 'route'
 
 export const LAYER_GROUP_LABELS: Record<LayerGroup, string> = {
   area: '任务区域',
@@ -56,6 +64,7 @@ export const LAYER_GROUP_LABELS: Record<LayerGroup, string> = {
   trail: '飞行尾迹',
   pulse: '脉冲标记',
   mark: '标注/标记',
+  route: '航线/图形区',
 }
 
 const GROUP_LAYERS: Record<LayerGroup, string[]> = {
@@ -69,6 +78,7 @@ const GROUP_LAYERS: Record<LayerGroup, string[]> = {
   target: [LYR.targetGlow, LYR.target, LYR.targetLabel],
   uav: [LYR.uavGlow, LYR.uav, LYR.uavLabel],
   mark: [LYR.mark, LYR.markLabel],
+  route: [LYR.routeGlow, LYR.route, LYR.routeDashed, LYR.shapeFill, LYR.shapeLine, LYR.shapeLineDashed],
 }
 
 export const ALL_LAYER_GROUPS = Object.keys(GROUP_LAYERS) as LayerGroup[]
@@ -81,7 +91,7 @@ export class LayerManager {
   private static scenario: ScenarioKey = 'scenario-1'
   private static phase: Phase = 'T0'
   private static pulseTimer: number | null = null
-  private static pulseSeeds: { lng: number; lat: number; color: string }[] = []
+  private static pulseSeeds: { lng: number; lat: number; color: string; id?: string }[] = []
   /** 被用户关掉的图层分组（跨 init 保留，重新加载样式后由 applyVisibility 恢复） */
   private static hidden = new Set<LayerGroup>()
 
@@ -104,12 +114,45 @@ export class LayerManager {
   static applyVisibility() {
     const map = this.map
     if (!map) return
+    const keep = this.phaseVisibleLayers()
     for (const g of ALL_LAYER_GROUPS) {
-      const vis = this.hidden.has(g) ? 'none' : 'visible'
+      const groupOn = !this.hidden.has(g)
       for (const id of GROUP_LAYERS[g]) {
-        if (map.getLayer(id)) map.setLayoutProperty(id, 'visibility', vis)
+        if (!map.getLayer(id)) continue
+        // 最终可见 = 分组开关 **且** 阶段规则没把它关掉
+        const vis = groupOn && (!keep || keep.has(id)) ? 'visible' : 'none'
+        map.setLayoutProperty(id, 'visibility', vis)
       }
     }
+  }
+
+  /**
+   * 当前阶段允许显示的图层集合。
+   * 说明：阶段规则与分组开关是两个正交的维度——阶段决定"这个阶段该不该有这类图层"，
+   * 分组开关决定"用户想不想看"。最终可见性取两者交集（见 applyVisibility）。
+   */
+  private static phaseVisibleLayers(): Set<string> | null {
+    const map = this.map
+    if (!map) return null
+    const p = this.phase
+    const recon = p === 'T3' || p === 'T4' || p === 'T5' || p === 'T6'
+    const showTarget = p !== 'T0' && p !== 'T1' && p !== 'T2'
+    const showGroup = p === 'T1' || p === 'T2' || p === 'T3'
+    const showLink = p !== 'T0' && p !== 'T1'
+    const on: string[] = []
+    // 与阶段无关的图层（任务区域、标注、航线/图形区）始终按分组开关显示
+    on.push(...GROUP_LAYERS.area, ...GROUP_LAYERS.mark, ...GROUP_LAYERS.route)
+    if (recon) on.push(LYR.scan)
+    if (recon || p === 'T7') on.push(LYR.trail)
+    // 无人机位置：侦察阶段起显示（T3–T7）。
+    // 修正：此前该组从未被阶段规则打开，导致 setUavs 灌入的实时位置不显示
+    //（与《技术需求文档》MAP-02「集群动态图层」的要求不符）。
+    if (recon || p === 'T7') on.push(LYR.uav, LYR.uavGlow, LYR.uavLabel)
+    if (recon && this.scenario === 'scenario-2') on.push(LYR.track)
+    if (showTarget) on.push(LYR.target, LYR.targetLabel, LYR.targetGlow, LYR.pulse)
+    if (showLink) on.push(LYR.link, LYR.linkGlow)
+    if (showGroup) on.push(LYR.group, LYR.groupLabel)
+    return new Set(on)
   }
 
   static init(map: MlMap) {
@@ -127,6 +170,8 @@ export class LayerManager {
     add(SRC.trail, emptyFC())
     add(SRC.pulse, emptyFC())
     add(SRC.mark, emptyFC())
+    add(SRC.route, emptyFC())
+    add(SRC.shape, emptyFC())
 
     // ---- 区域多边形（任务分区） ----
     map.addLayer({
@@ -299,6 +344,68 @@ export class LayerManager {
       paint: { 'text-color': ['coalesce', ['get', 'color'], '#cfe3f5'], 'text-halo-color': 'rgba(5,10,20,.85)', 'text-halo-width': 1.8 },
     })
 
+    // ---- 无人机航线（需求 M2-DRAW-01：航线；发光底 + 实/虚线航线） ----
+    map.addLayer({
+      id: LYR.routeGlow, type: 'line', source: SRC.route,
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#22d3ee'],
+        'line-width': 4.5, 'line-opacity': 0.18, 'line-blur': 3,
+      },
+    })
+    // 实线航线 + 虚线航线：MapLibre 的 line-dasharray **不支持数据表达式**，
+    // 因此用"同一数据源 + filter 分流 + 常量 dasharray"两套图层实现按图元切换虚实线。
+    map.addLayer({
+      id: LYR.route, type: 'line', source: SRC.route,
+      filter: ['!=', ['get', 'dashed'], true],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#22d3ee'],
+        'line-width': 1.6,
+        'line-opacity': 0.95,
+      },
+    })
+    map.addLayer({
+      id: LYR.routeDashed, type: 'line', source: SRC.route,
+      filter: ['==', ['get', 'dashed'], true],
+      layout: { 'line-cap': 'round', 'line-join': 'round' },
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#22d3ee'],
+        'line-width': 1.6,
+        'line-opacity': 0.95,
+        'line-dasharray': [6, 4],
+      },
+    })
+
+    // ---- 圆形 / 椭圆形区域（需求 M2-DRAW-01：圆形、椭圆区域） ----
+    map.addLayer({
+      id: LYR.shapeFill, type: 'fill', source: SRC.shape,
+      paint: {
+        'fill-color': ['coalesce', ['get', 'color'], '#3b82f6'],
+        'fill-opacity': ['coalesce', ['get', 'opacity'], 0.12],
+      },
+    })
+    // 同航线：实/虚两套图层（dasharray 不支持数据表达式）
+    map.addLayer({
+      id: LYR.shapeLine, type: 'line', source: SRC.shape,
+      filter: ['!=', ['get', 'dashed'], true],
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#3b82f6'],
+        'line-width': ['coalesce', ['get', 'weight'], 1.4],
+        'line-opacity': 0.9,
+      },
+    })
+    map.addLayer({
+      id: LYR.shapeLineDashed, type: 'line', source: SRC.shape,
+      filter: ['==', ['get', 'dashed'], true],
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#3b82f6'],
+        'line-width': ['coalesce', ['get', 'weight'], 1.4],
+        'line-opacity': 0.9,
+        'line-dasharray': [4, 3],
+      },
+    })
+
     this.startPulse()
   }
 
@@ -320,6 +427,7 @@ export class LayerManager {
             feats.push({
               type: 'Feature',
               properties: {
+                id: s.id,
                 r: 5 + phase * 26,
                 o: (1 - phase) * 0.75,
                 color: s.color,
@@ -343,7 +451,7 @@ export class LayerManager {
   }
 
   /** 更新脉冲种子（目标点） */
-  private static setPulseSeeds(seeds: { lng: number; lat: number; color: string }[]) {
+  private static setPulseSeeds(seeds: { lng: number; lat: number; color: string; id?: string }[]) {
     this.pulseSeeds = seeds
     if (seeds.length === 0 && this.map) {
       const src = this.map.getSource(SRC.pulse) as maplibregl.GeoJSONSource | undefined
@@ -392,27 +500,10 @@ export class LayerManager {
     src?.setData(this.areaData() as never)
   }
 
-  /** 阶段决定哪些图层可见（如 T3 起显示扫描热点、T7 显示轨迹） */
+  /** 阶段决定哪些图层可见（如 T3 起显示扫描热点、T7 显示轨迹）；与分组开关取交集 */
   static setPhase(p: Phase) {
     this.phase = p
-    const m = this.map
-    if (!m) return
-    const set = (id: string, visible: boolean) => {
-      if (m.getLayer(id)) m.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none')
-    }
-    const recon = p === 'T3' || p === 'T4' || p === 'T5' || p === 'T6'
-    set(LYR.scan, recon)
-    set(LYR.trail, recon || p === 'T7')
-    set(LYR.track, recon && this.scenario === 'scenario-2')
-    const showTarget = p !== 'T0' && p !== 'T1' && p !== 'T2'
-    set(LYR.target, showTarget)
-    set(LYR.targetLabel, showTarget)
-    set(LYR.targetGlow, showTarget)
-    set(LYR.pulse, showTarget)
-    set(LYR.link, p !== 'T0' && p !== 'T1')
-    set(LYR.linkGlow, p !== 'T0' && p !== 'T1')
-    set(LYR.group, p === 'T1' || p === 'T2' || p === 'T3')
-    set(LYR.groupLabel, p === 'T1' || p === 'T2' || p === 'T3')
+    this.applyVisibility()
   }
 
   // ---------------------------------------------------------------- 数据
@@ -556,13 +647,25 @@ export class LayerManager {
   }
 
   /** 设置脉冲环种子（公开版；供绘图 API 使用） */
-  static setPulseItems(seeds: { lng: number; lat: number; color: string; radiusKm?: number }[]) {
-    this.setPulseSeeds(seeds.map((s) => ({ lng: s.lng, lat: s.lat, color: s.color })))
+  static setPulseItems(seeds: { lng: number; lat: number; color: string; radiusKm?: number; id?: string }[]) {
+    this.setPulseSeeds(seeds.map((s) => ({ lng: s.lng, lat: s.lat, color: s.color, id: s.id })))
   }
 
   /** 自由标注 / 标记（点 + 文本） */
   static setMarkers(fc: GeoJSON.FeatureCollection) {
     const src = this.map?.getSource(SRC.mark) as maplibregl.GeoJSONSource | undefined
+    src?.setData(fc as never)
+  }
+
+  /** 无人机航线（LineString，属性：color/dashed/name） */
+  static setRouteFeatures(fc: GeoJSON.FeatureCollection) {
+    const src = this.map?.getSource(SRC.route) as maplibregl.GeoJSONSource | undefined
+    src?.setData(fc as never)
+  }
+
+  /** 圆形/椭圆形区域（Polygon，属性：color/opacity/dashed/weight） */
+  static setShapeFeatures(fc: GeoJSON.FeatureCollection) {
+    const src = this.map?.getSource(SRC.shape) as maplibregl.GeoJSONSource | undefined
     src?.setData(fc as never)
   }
 
@@ -598,7 +701,7 @@ export class LayerManager {
   }
 
   /** 自由的脉冲环种子（绘图 API 用） */
-  static setPulseSeedsPublic(seeds: { lng: number; lat: number; color: string }[]) {
+  static setPulseSeedsPublic(seeds: { lng: number; lat: number; color: string; id?: string }[]) {
     this.setPulseSeeds(seeds)
   }
 

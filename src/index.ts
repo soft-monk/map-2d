@@ -32,7 +32,10 @@ export { basemaps, initialBasemapConfig, BASEMAP_CHANGE_EVENT } from './core/bas
 export type { BasemapDef, BasemapInfo, BasemapListener } from './core/basemaps'
 
 // 图元事件（M2-DRAW-13）：点击/悬停回调只带图元身份，空白处不触发
-export { onPrimitiveEvent, bindPrimitiveEvents, unbindPrimitiveEvents, clearPrimitiveHandlers } from './core/primitiveEvents'
+export {
+  onPrimitiveEvent, bindPrimitiveEvents, unbindPrimitiveEvents, clearPrimitiveHandlers,
+  pickAt, primitiveHandlerCounts,
+} from './core/primitiveEvents'
 export type { PrimitiveEvent, PrimitiveEventName } from './core/primitiveEvents'
 
 // 运行指标与错误上报（M2-CTRL-15 / M2-NFR-10 / M2-NFR-11）

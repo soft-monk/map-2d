@@ -8,7 +8,7 @@ import maplibregl, { Map as MlMap } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { LayerManager } from '../render/LayerManager'
 import { MapDraw } from '../primitives/api'
-import { mapInstance } from '../core/instance'
+import { mapInstance, layersReady } from '../core/instance'
 import { MAP_OPTIONS } from '../core/options'
 import { tileMaxZoomFromOptions } from '../core/tilePrecision'
 import { applyControls } from '../core/controls'
@@ -184,6 +184,8 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
     map.on('load', () => {
       LayerManager.init(map)
       LayerManager.applyVisibility()   // 恢复用户此前的图层开关
+      layersReady.current = true       // 图层已建立：此后 MapDraw 的写入才会真正落到源上
+      MapDraw.render()                 // 把"建图前就灌进来"的图元一次性补画
       bindPrimitiveEvents(map)         // 图元点击/悬停回调（M2-DRAW-13）
       startFpsCounter()                // 运行指标（M2-CTRL-15）
       setPrimitiveCounter(() => ({     // 各类图元数量：由绘制 API 的集合统计
@@ -196,6 +198,8 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
         pulse: MapDraw.list('pulse').length,
         cluster: MapDraw.list('cluster').length,
         label: MapDraw.list('label').length,
+        route: MapDraw.list('route').length,
+        shape: MapDraw.list('shape').length,
       }))
       setReady(true)
     })
@@ -232,6 +236,7 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
     return () => {
       map.remove()
       mapInstance.current = null
+      layersReady.current = false
       setReady(false)
     }
   }, [setViewport])

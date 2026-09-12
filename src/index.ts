@@ -14,6 +14,19 @@ export { CoordReadout } from './ui/CoordReadout'
 export { Legend, DEFAULT_LEGEND } from './ui/Legend'
 // 交互层：手绘 / 图元编辑 / 量算（M2-DRAW-08/12/14、M2-CTRL-10）
 export { DrawLayer } from './ui/DrawLayer'
+// 瓦片源降级（M2-MAP-10）与瓦片包校验（M2-BASE-08）
+export {
+  bindTileFallback, unbindTileFallback, tileState, isDegraded, onTilesDegraded,
+  resetTileFallback, TILES_DEGRADED_EVENT,
+} from './core/tileFallback'
+export type { TileDegradeState } from './core/tileFallback'
+export { validateTiles, missingTilesFrom } from './core/tileValidation'
+export type { TileManifest, ValidationReport, ValidationCheck } from './core/tileValidation'
+// 军事网格与坐标换算（M2-MAP-08）
+export {
+  utmZone, toUTM, toMGRS, coordinateReadout, buildGrid, refreshGrid, setGridKind, gridKind,
+} from './core/grid'
+export type { GridKind } from './core/grid'
 // 显示模式（M2-CTRL-08 / 09）：阶段自动推导 + 宿主手动覆盖
 export {
   syncDisplayMode, setDisplayModeManual, clearDisplayModeOverride, displayModeState,

@@ -18,6 +18,9 @@ import {
   type ViewState, type RestoreOptions, type ExportImageOptions,
 } from './viewState'
 import { renderTiming } from './diagnostics'
+import { tileState, onTilesDegraded, type TileDegradeState } from './tileFallback'
+import { validateTiles } from './tileValidation'
+import { setGridKind, gridKind, coordinateReadout, toMGRS, type GridKind } from './grid'
 import { setDisplayModeManual, clearDisplayModeOverride, displayModeState, availableDisplayModes } from './displayModeState'
 import { registerSymbol, symbolNames, symbolSvg, type SymbolDef, type SymbolAffiliation } from './symbols'
 import {
@@ -175,6 +178,44 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 瓦片源降级与瓦片包校验
+  /** 当前瓦片源是否降级（源不可用时为 true，地图仍可用） */
+  getTileState() {
+    return tileState()
+  },
+  /** 订阅瓦片降级状态变化（宿主可据此提示"底图源不可用"） */
+  onTilesDegraded(fn: (s: TileDegradeState) => void) {
+    return onTilesDegraded(fn)
+  },
+  /** 校验瓦片包版本与完整性（M2-BASE-08）：清单 + 抽样探测 */
+  async validateTiles(opts?: Parameters<typeof validateTiles>[0]) {
+    return validateTiles(opts)
+  },
+
+  // ------------------------------------------------------------ 军事网格与经纬网（M2-MAP-08）
+  /** 网格类型：'none' 关闭 / 'graticule' 经纬网 / 'utm' UTM 军用方格 */
+  setGrid(kind: GridKind) {
+    return setGridKind(kind)
+  },
+  getGrid(): GridKind {
+    return gridKind()
+  },
+  /** 坐标读数：经纬度 + UTM（带号/东距/北距）+ MGRS 格网参考 */
+  readCoordinate(lng: number, lat: number) {
+    return coordinateReadout(lng, lat)
+  },
+  /** 当前地图中心的坐标读数（UTM/MGRS） */
+  readCenterCoordinate() {
+    const map = mapInstance.current
+    if (!map) return null
+    const c = map.getCenter()
+    return coordinateReadout(c.lng, c.lat)
+  },
+  /** MGRS 格网参考（如 "50TMK 12345 67890"） */
+  toMGRS(lng: number, lat: number, precision?: number) {
+    return toMGRS(lng, lat, precision)
   },
 
   // ------------------------------------------------------------ 显示模式（M2-CTRL-08 / 09）

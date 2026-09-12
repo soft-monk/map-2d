@@ -170,7 +170,11 @@ npm run dev
 
 ## 三、这个模块现在有什么（功能清单）
 
-状态口径：**✅ 已完成 ｜ ⏳ 待完成**（当前 93 条需求中已完成 36 条，详见 [doc/需求文档.md](doc/需求文档.md) §6）。
+状态口径：**✅ 已完成 ｜ ⏳ 待完成**（当前 93 条需求中已完成 84 条，详见 [doc/需求文档.md](doc/需求文档.md) §0 完成情况总览）。
+
+> **关于瓦片目录**：`map-2d/tiles` 可以是指向别处的**目录联接（Junction）**，也可以是真的目录。
+> 瓦片包校验用的 `manifest.json` **不随包入库**（在 `.gitignore` 里），需要时用
+> `node scripts/gen-tile-manifest.mjs ./tiles/raster v1` 生成（约 200 KB，含各层瓦片键列表）。
 
 ### 3.1 已经能用的（✅）
 
@@ -203,6 +207,8 @@ npm run dev
 | **单个图元显隐** | 每个图元可单独隐藏/恢复（数据保留），也可整类隐藏 | `MapDraw.hide/show/hideAll/showAll` |
 | **批量提交** | 批次内任意次增删改，退出时只渲染一次 | `MapDraw.batch(() => {...})` |
 | **瓦片精度上限** | 按地面分辨率设上限，超过的层级不再请求瓦片（默认不限制） | `mapCommands.setTilePrecisionLimit({ maxMetersPerPixel: 1000 })` |
+| **瓦片包校验** | 生成清单（版本/各层数量/sha256）并校验完整性（清单比对 + 抽样探测） | `node scripts/gen-tile-manifest.mjs ./tiles/raster v1` → `mapCommands.validateTiles()` |
+| **军用网格与经纬网** | 经纬网 / UTM 方格可开关；含 UTM 带号与 **MGRS 格网参考**换算（自实现，无依赖） | `mapCommands.setGrid('utm')`、`mapCommands.readCoordinate(lng, lat)` |
 | **多套底图切换** | 本地影像/路网/地形等多套底图可枚举、可切换（**整幅替换**），切换后视角与图元保持并向宿主发通知 | `basemaps.list() / switch('road') / onChange(cb)` |
 | **图元点击/悬停回调** | 回调只带图元身份（kind+id），点空白不触发 | `MapDraw.on` → 见接口文档 §10.6 |
 | **运行指标与错误上报** | 帧率/图元数/瓦片缓存/提交耗时；脏数据只跳过该条并上报 | `runtimeStats()`、`onPrimitiveError(cb)` |
@@ -242,7 +248,7 @@ npm run dev
 | **工程性** | 性能基线维护、资源上限、大数据量降级、多实例隔离、错误边界 |
 | **观感遗留** | 缩放/拖拽时偶发的深蓝灰方块（已定位成因，曾试一版体感变卡顿已回退） |
 
-完整条目、验收标准与决策记录见 [doc/需求文档.md](doc/需求文档.md)。当前 **93 条需求中已完成 82 条**。
+完整条目、验收标准与决策记录见 [doc/需求文档.md](doc/需求文档.md)。当前 **93 条需求中已完成 84 条**。
 
 ---
 

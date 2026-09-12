@@ -19,6 +19,8 @@ export interface MapUiState {
   displayMode: string
   /** 当前主题（日间/夜间/高对比，M2-CTRL-13） */
   theme: 'day' | 'night' | 'contrast'
+  /** 网格类型（无/经纬网/UTM 方格，M2-MAP-08） */
+  grid: 'none' | 'graticule' | 'utm'
   /** 地图控件显示状态（需求 M2-CTRL-01：初值取 MAP_OPTIONS.controls，通常全不显示） */
   controls: Record<MapControlKey, boolean>
   /** 鼠标所在经纬度（coords 控件显示用；未开启也在后台更新，宿主可读） */
@@ -33,6 +35,7 @@ export interface MapUiState {
   setViewport(v: Partial<MapViewport>): void
   setDisplayMode(m: string): void
   setTheme(t: 'day' | 'night' | 'contrast'): void
+  setGrid(g: 'none' | 'graticule' | 'utm'): void
   setControls(v: Partial<Record<MapControlKey, boolean>>): void
   setPointer(p: { lng: number; lat: number } | null): void
 }
@@ -45,6 +48,7 @@ export const useMapUiStore = create<MapUiState>((set, get) => ({
   viewport: { lng: 0, lat: 0, zoom: 0, bearing: 0 },
   displayMode: '',
   theme: 'night',
+  grid: 'none',
   controls: { ...MAP_OPTIONS.controls },
   pointer: null,
 
@@ -75,6 +79,9 @@ export const useMapUiStore = create<MapUiState>((set, get) => ({
   },
   setTheme(t) {
     set({ theme: t })
+  },
+  setGrid(g) {
+    set({ grid: g })
   },
   setDisplayMode(m) {
     set({ displayMode: m })

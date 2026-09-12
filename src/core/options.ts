@@ -5,6 +5,12 @@
 //    （Esri, Maxar, Earthstar Geographics, and the GIS User Community）。
 //    设为 false 只是让界面更整洁，**合规责任由使用方承担**；
 //    需要恢复署名时把下面这一项改回 true 即可（无需改动其它任何文件）。
+/**
+ * 默认瓦片模板（模块级约定）。
+ * 宿主不配置 	ileUrlTemplate 时按此取瓦片；瓦片包校验（M2-BASE-08）也以它作为参考模板。
+ */
+export const DEFAULT_TILE_TEMPLATE = '/tiles/raster/{z}/{x}/{y}.jpg'
+
 export const MAP_OPTIONS = {
   /** 是否在地图右下角显示底图版权署名 */
   showAttribution: false,

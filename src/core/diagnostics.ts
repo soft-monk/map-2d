@@ -6,6 +6,7 @@
 // 说明：帧率用 requestAnimationFrame 计数得到（MapLibre 未提供公开的 FPS 接口）。
 import { mapInstance } from './instance'
 import type { PrimitiveKind } from '../primitives/api'
+import { isDegraded } from './tileFallback'
 
 export interface PrimitiveError {
   kind: PrimitiveKind
@@ -170,7 +171,7 @@ export function stats(): RuntimeStats {
     tileCache: cacheSize(),
     lastSubmitMs: +lastSubmitMs.toFixed(2),
     jsHeapMB: mem ? Math.round(mem.usedJSHeapSize / 1048576) : null,
-    degraded: false,
+    degraded: isDegraded(),   // 瓦片源降级状态（M2-MAP-10），此前写死 false
     render: renderTiming(),
   }
 }

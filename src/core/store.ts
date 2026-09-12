@@ -17,6 +17,8 @@ export interface MapUiState {
   viewport: MapViewport
   /** 显示模式名称（由应用按阶段写入，模块只负责展示） */
   displayMode: string
+  /** 当前主题（日间/夜间/高对比，M2-CTRL-13） */
+  theme: 'day' | 'night' | 'contrast'
   /** 地图控件显示状态（需求 M2-CTRL-01：初值取 MAP_OPTIONS.controls，通常全不显示） */
   controls: Record<MapControlKey, boolean>
   /** 鼠标所在经纬度（coords 控件显示用；未开启也在后台更新，宿主可读） */
@@ -30,6 +32,7 @@ export interface MapUiState {
   toggleGroup(g: LayerGroup): void
   setViewport(v: Partial<MapViewport>): void
   setDisplayMode(m: string): void
+  setTheme(t: 'day' | 'night' | 'contrast'): void
   setControls(v: Partial<Record<MapControlKey, boolean>>): void
   setPointer(p: { lng: number; lat: number } | null): void
 }
@@ -41,6 +44,7 @@ export const useMapUiStore = create<MapUiState>((set, get) => ({
   hiddenGroups: LayerManager.hiddenGroups(),
   viewport: { lng: 0, lat: 0, zoom: 0, bearing: 0 },
   displayMode: '',
+  theme: 'night',
   controls: { ...MAP_OPTIONS.controls },
   pointer: null,
 
@@ -68,6 +72,9 @@ export const useMapUiStore = create<MapUiState>((set, get) => ({
   },
   setViewport(v) {
     set({ viewport: { ...get().viewport, ...v } })
+  },
+  setTheme(t) {
+    set({ theme: t })
   },
   setDisplayMode(m) {
     set({ displayMode: m })

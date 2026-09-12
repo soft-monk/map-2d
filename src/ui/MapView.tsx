@@ -13,6 +13,7 @@ import { MAP_OPTIONS } from '../core/options'
 import { tileMaxZoomFromOptions } from '../core/tilePrecision'
 import { applyControls } from '../core/controls'
 import { injectControlStyle, MAP_CONTAINER_CLASS } from '../core/style'
+import { reapplyTheme } from '../core/theme'
 import { BASEMAP_CHANGE_EVENT, basemaps } from '../core/basemaps'
 import { bindPrimitiveEvents } from '../core/primitiveEvents'
 import { setPrimitiveCounter, startFpsCounter } from '../core/diagnostics'
@@ -190,6 +191,7 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
       LayerManager.applyVisibility()   // 恢复用户此前的图层开关
       layersReady.current = true       // 图层已建立：此后 MapDraw 的写入才会真正落到源上
       MapDraw.render()                 // 把"建图前就灌进来"的图元一次性补画
+      reapplyTheme()                   // 主题热切换（M2-CTRL-13）：新样式上重新套用当前主题
       bindPrimitiveEvents(map)         // 图元点击/悬停回调（M2-DRAW-13）
       startFpsCounter()                // 运行指标（M2-CTRL-15）
       setPrimitiveCounter(() => ({     // 各类图元数量：由绘制 API 的集合统计
@@ -280,6 +282,9 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
         LayerManager.applyVisibility()
       }
       MapDraw.render()
+      // 样式重建会把主题相关的 paint 属性（底图亮度/叠加色/标签描边）重置为默认值，
+      // 因此必须重新套用当前主题，否则"换底图后主题丢失"（M2-CTRL-13）。
+      reapplyTheme()
     }
     map.once('styledata', onStyled)
     // basemapRev 只用于触发重建（值本身不参与比较）

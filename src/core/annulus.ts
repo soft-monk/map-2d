@@ -12,6 +12,8 @@ export type AnnulusKind = 'ring' | 'bearing-ring' | 'bearing-line' | 'grid'
 export interface AnnulusItem {
   id: string
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15） */
+  style?: string
   kind: AnnulusKind
   lng: number
   lat: number

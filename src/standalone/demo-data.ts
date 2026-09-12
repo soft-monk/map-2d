@@ -119,7 +119,7 @@ export const DEMO_SNAPSHOT: DrawSnapshot = {
     { id: 'U-4', lng: 116.430, lat: 39.900, type: 'comm', label: '通信-04' },
   ],
   target: [
-    { id: 'T-1', lng: 116.452, lat: 39.878, threat: 'high', status: 'red', label: '目标 001 · 指挥节点', selected: true },
+    { id: 'T-1', lng: 116.452, lat: 39.878, threat: 'high', status: 'red', label: '目标 001 · 指挥节点', selected: true, style: '告警红' },
     { id: 'T-2', lng: 116.470, lat: 39.890, threat: 'mid', status: 'yellow', label: '目标 002 · 通信枢纽' },
     { id: 'T-3', lng: 116.361, lat: 39.842, threat: 'low', status: 'gray', label: '目标 003 · 后勤点' },
   ],
@@ -158,15 +158,15 @@ export const DEMO_SNAPSHOT: DrawSnapshot = {
     },
   ],
   shape: [
-    { id: 'C-1', lng: 116.365, lat: 39.912, radiusKm: 4, color: '#38bdf8', label: '光电侦察圈 R=4km' },
+    { id: 'C-1', lng: 116.365, lat: 39.912, radiusKm: 4, label: '光电侦察圈 R=4km', style: '侦察青' },
     { id: 'E-1', lng: 116.470, lat: 39.905, radiusKm: 9, radiusKmMinor: 4, rotation: 35, color: '#a855f7', label: '雷达探测椭圆 9×4km' },
-    { id: 'TG-1', lng: 116.452, lat: 39.878, radiusKm: 2.2, kind: 'target', color: '#ef4444', label: '目标 001 打击区' },
+    { id: 'TG-1', lng: 116.452, lat: 39.878, radiusKm: 2.2, kind: 'target', label: '目标 001 打击区', style: '重点区' },
     { id: 'SR-1', lng: 116.361, lat: 39.842, radiusKm: 3.5, kind: 'search', label: '后勤点搜索区' },
   ],
   // 需求 M2-DRAW-09 圈层类图元
   annulus: [
     { id: 'AN-1', kind: 'ring', lng: 116.3974, lat: 39.9093, radiusKmList: [5, 10, 15], label: '距离环 5/10/15km' },
-    { id: 'AN-2', kind: 'bearing-line', lng: 116.3974, lat: 39.9093, bearing: 45, lengthKm: 18, dashed: true, color: '#f59e0b', label: '方位线 045°' },
+    { id: 'AN-2', kind: 'bearing-line', lng: 116.3974, lat: 39.9093, bearing: 45, lengthKm: 18, label: '方位线 045°', style: '规划虚线' },
     { id: 'AN-3', kind: 'bearing-ring', lng: 116.47, lat: 39.90, radiusKm: 8, bearing: 30, color: '#a855f7', label: '方位圈 R=8km' },
     { id: 'AN-4', kind: 'grid', lng: 116.33, lat: 39.94, radiusKm: 2, rows: 3, cols: 3, dashed: true, color: '#8fb0cc', label: '九宫格 2km' },
   ],
@@ -212,6 +212,16 @@ export const DEMO_REPLAY: import('../index').ReplayData = {
       })),
     },
   ],
+}
+
+// ---------------------------------------------------------------- 样式模板演示（M2-DRAW-15）
+//
+// 宿主集中登记命名样式，图元只写 style 名；改模板即批量生效。
+export const DEMO_STYLES: Record<string, import('../index').StyleTemplate> = {
+  '告警红': { color: '#ef4444', weight: 2, dashed: false, size: 12 },
+  '侦察青': { color: '#22d3ee', weight: 1.4, dashed: true, size: 11 },
+  '规划虚线': { color: '#f59e0b', dashed: true, weight: 1.6 },
+  '重点区': { color: '#a855f7', opacity: 0.18, dashed: true, weight: 2 },
 }
 
 // ---------------------------------------------------------------- 验收台清单

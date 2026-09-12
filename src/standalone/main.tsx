@@ -8,7 +8,7 @@ import 'maplibre-gl/dist/maplibre-gl.css'
 import { Compass, CoordReadout, DrawLayer, LayerPanel, Legend, MapDraw, MapView, ReplayBar, basemaps, mapCommands, useMapUiStore } from '../index'
 import type { BasemapDef } from '../index'
 import type { MapData } from '../core/types'
-import { DEMO_BASEMAPS, DEMO_BASEMAP_DEFS, DEMO_REPLAY, DEMO_SNAPSHOT } from './demo-data'
+import { DEMO_BASEMAPS, DEMO_BASEMAP_DEFS, DEMO_REPLAY, DEMO_SNAPSHOT, DEMO_STYLES } from './demo-data'
 import { Acceptance } from './acceptance'
 import { useInteraction } from '../index'
 import './standalone.css'
@@ -41,8 +41,11 @@ const DRAW_BUTTONS: [import('../index').DrawMode, string, string][] = [
   ['measure-area', '测面', '单击落点，双击 / Enter 结束'],
 ]
 
-/** 11 类图元（用于角标计数） */
-const TOTAL_KINDS: import('../index').PrimitiveKind[] = ['area', 'drone', 'target', 'link', 'track', 'scan', 'pulse', 'cluster', 'label', 'route', 'shape']
+/** 主题按钮（M2-CTRL-13） */
+const THEME_BUTTONS: [import('../index').ThemeKey, string][] = [['day', '日间'], ['night', '夜间'], ['contrast', '高对比']]
+
+/** 12 类图元（用于角标计数） */
+const TOTAL_KINDS: import('../index').PrimitiveKind[] = ['area', 'drone', 'target', 'link', 'track', 'scan', 'pulse', 'cluster', 'label', 'route', 'shape', 'annulus']
 
 /** 控件按需显示的演示项（M2-CTRL-01 ~ 05） */
 const CONTROL_LABELS: [import('../index').MapControlKey, string][] = [
@@ -56,6 +59,8 @@ const CONTROL_LABELS: [import('../index').MapControlKey, string][] = [
 // 底图清单交给模块的注册表（M2-BASE-09/10/12）：**在渲染前注册**，这样建图时
 // 首屏底图就直接来自注册表，不会先建一次再重建。
 basemaps.setList(DEMO_BASEMAP_DEFS)
+// 登记命名样式模板（M2-DRAW-15）：图元用 style 名引用，改模板即批量生效
+mapCommands.setStyleTemplates(DEMO_STYLES)
 
 const App: React.FC = () => {
   const [basemapList, setBasemapList] = React.useState<BasemapDef[]>(() => basemaps.list())
@@ -76,6 +81,7 @@ const App: React.FC = () => {
   const toggleClearMode = useMapUiStore((s) => s.toggleClearMode)
   const controls = useMapUiStore((s) => s.controls)
   const drawMode = useInteraction((s) => s.mode)
+  const theme = useMapUiStore((s) => s.theme)
 
   const [drawn, setDrawn] = React.useState(false)
 
@@ -160,6 +166,21 @@ const App: React.FC = () => {
               onClick={() => mapCommands.clearReplay()}
             >清除回放</button>
 
+            {/* 主题热切换（M2-CTRL-13）：运行中切换，不重建样式、不刷新页面 */}
+            <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 6 }}>主题：</span>
+            {THEME_BUTTONS.map(([key, label]) => (
+              <button
+                key={key}
+                title={`切换到${label}主题（M2-CTRL-13）`}
+                style={{
+                  ...barButton,
+                  borderColor: theme === key ? 'var(--cyan, #22d3ee)' : 'var(--panel-border, #1d3a5c)',
+                  color: theme === key ? 'var(--cyan, #22d3ee)' : 'var(--text-1, #cfe3f5)',
+                }}
+                onClick={() => mapCommands.applyTheme(key)}
+              >{label}</button>
+            ))}
+
             {/* 绘制与量算（M2-DRAW-08 / M2-CTRL-10）：与工具条同一套能力，这里做成按钮组 */}
             <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 6 }}>绘制：</span>
             {DRAW_BUTTONS.map(([mode, label, hint]) => (
@@ -192,7 +213,7 @@ const App: React.FC = () => {
             ))}
 
             <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 4 }}>
-              {drawn ? `已绘制 ${TOTAL_KINDS.reduce((n, k) => n + MapDraw.list(k).length, 0)} 个图元（11 类）` : '未绘制图元'}
+              {drawn ? `已绘制 ${TOTAL_KINDS.reduce((n, k) => n + MapDraw.list(k).length, 0)} 个图元（12 类）` : '未绘制图元'}
             </span>
           </div>
         )}

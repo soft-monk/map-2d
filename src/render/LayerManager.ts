@@ -790,6 +790,29 @@ export class LayerManager {
     return true
   }
 
+  /** 底图栅格图层 id（主题调亮度/饱和度用） */
+  static baseLayerIds(): string[] {
+    const map = this.map
+    if (!map) return []
+    return map.getStyle().layers
+      .filter((l) => l.type === 'raster' && String(l.id).startsWith('base'))
+      .map((l) => l.id)
+  }
+
+  /** 底图着色叠加层 id */
+  static tintLayerIds(): string[] {
+    const map = this.map
+    if (!map) return []
+    return map.getStyle().layers
+      .filter((l) => l.type === 'fill' && (l.id === 'base-tint' || String(l.id).includes('tint')))
+      .map((l) => l.id)
+  }
+
+  /** 带文字标注的图层 id（主题调标签可读性用） */
+  static labelLayerIds(): string[] {
+    return [LYR.markLabel, LYR.targetLabel, LYR.groupLabel, LYR.uavLabel].filter((id) => !!this.map?.getLayer(id))
+  }
+
   /** 当前图层从下到上的顺序（只列模块自己的图层，供宿主/调试查看） */
   static layerOrder(): string[] {
     const map = this.map

@@ -13,6 +13,7 @@ import { recordRender, recordSubmit, recordWrite, reportPrimitiveError } from '.
 import { onPrimitiveEvent, type PrimitiveEvent } from '../core/primitiveEvents'
 import { annulusToLines, type AnnulusItem } from '../core/annulus'
 import { clusterOptions as _clusterCfg, clusterPoints, filterLabels, labelOptions as _labelCfg, setClusterStats as setLastClusterStats } from '../core/clustering'
+import { resolveStyle } from '../core/theme'
 import type { LinkState, Threat, UavType } from '../core/types'
 
 // ---------------------------------------------------------------- 图元类型
@@ -40,6 +41,8 @@ export interface DroneItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   lng: number
   lat: number
   type?: UavType
@@ -51,6 +54,8 @@ export interface TargetItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   lng: number
   lat: number
   threat?: Threat
@@ -65,6 +70,8 @@ export interface LinkItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   from: [number, number]
   to: [number, number]
   state?: LinkState
@@ -76,6 +83,8 @@ export interface TrackItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   points: [number, number][]
   color?: string
   dashed?: boolean
@@ -85,6 +94,8 @@ export interface ScanItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   lng: number
   lat: number
   /** 覆盖半径（公里，按当前缩放换算为像素） */
@@ -97,6 +108,8 @@ export interface PulseItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   lng: number
   lat: number
   color?: string
@@ -107,6 +120,8 @@ export interface ClusterItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   lng: number
   lat: number
   name?: string
@@ -117,6 +132,8 @@ export interface LabelItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   lng: number
   lat: number
   text: string
@@ -136,6 +153,8 @@ export interface RouteItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   /** 航线途经点（至少 2 个） */
   points: [number, number][]
   color?: string
@@ -160,6 +179,8 @@ export interface ShapeItem {
   id: string
   /** 是否显示（默认 true） */
   visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
   lng: number
   lat: number
   /** 主半径（公里） */
@@ -289,6 +310,12 @@ function ellipseRing(s: ShapeItem, segments = 72): [number, number][] {
 function renderKind(kind: PrimitiveKind) {
   if (!layersAvailable()) return   // 图层未建立：先攒着，MapView 就绪后 renderAll 统一补画
   let items = [...bags[kind].values()].filter((it) => (it as { visible?: boolean }).visible !== false)
+
+  // 命名样式模板（M2-DRAW-15）：模板值打底、图元自身字段覆盖。
+  // 在这里统一解析，意味着"改模板后调一次 render() 即可让所有引用者一起变"。
+  if (items.some((it) => (it as { style?: string }).style)) {
+    items = items.map((it) => resolveStyle(it as unknown as Record<string, unknown>) as unknown as AnyItem)
+  }
 
   // 标签分级与避让（M2-DRAW-11）：按当前缩放决定哪些标签该出现
   if (kind === 'label' && items.length) {

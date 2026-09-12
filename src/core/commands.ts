@@ -19,6 +19,10 @@ import {
 } from './viewState'
 import { renderTiming } from './diagnostics'
 import {
+  setStyleTemplates, defineStyle, removeStyle, styleNames, getStyle, applyTheme, getTheme, currentThemeKey,
+  type StyleTemplate, type ThemeKey,
+} from './theme'
+import {
   setClusterOptions, getClusterOptions, clusterStats, setLabelPolicy, getLabelPolicy,
   type ClusterOptions, type LabelPolicy,
 } from './clustering'
@@ -169,6 +173,41 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 样式模板与主题（M2-DRAW-15 / M2-CTRL-13）
+  /** 登记命名样式模板（可一次登记多个，同名覆盖）；图元用 style: '名字' 引用 */
+  setStyleTemplates(defs: Record<string, StyleTemplate>) {
+    const r = setStyleTemplates(defs)
+    MapDraw.render()
+    return r
+  },
+  defineStyle(name: string, def: StyleTemplate) {
+    const r = defineStyle(name, def)
+    MapDraw.render()
+    return r
+  },
+  removeStyle(name: string) {
+    const ok = removeStyle(name)
+    MapDraw.render()
+    return ok
+  },
+  getStyleNames(): string[] {
+    return styleNames()
+  },
+  getStyle(name: string) {
+    return getStyle(name)
+  },
+
+  /** 应用主题（日间/夜间/高对比）；运行中热切换，不重建样式、不刷新页面 */
+  applyTheme(key: ThemeKey) {
+    return applyTheme(key)
+  },
+  getTheme(key?: ThemeKey) {
+    return getTheme(key)
+  },
+  currentTheme(): ThemeKey {
+    return currentThemeKey()
   },
 
   // ------------------------------------------------------------ 聚合与标签策略（M2-DRAW-10 / 11）

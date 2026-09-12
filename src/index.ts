@@ -14,6 +14,12 @@ export { CoordReadout } from './ui/CoordReadout'
 export { Legend, DEFAULT_LEGEND } from './ui/Legend'
 // 交互层：手绘 / 图元编辑 / 量算（M2-DRAW-08/12/14、M2-CTRL-10）
 export { DrawLayer } from './ui/DrawLayer'
+// 命名样式模板与主题（M2-DRAW-15 / M2-CTRL-13）
+export {
+  setStyleTemplates, defineStyle, removeStyle, styleNames, getStyle, clearStyles, resolveStyle,
+  applyTheme, getTheme, currentThemeKey, reapplyTheme, THEMES,
+} from './core/theme'
+export type { StyleTemplate, ThemeKey, ThemeDef } from './core/theme'
 // 圈层类图元（M2-DRAW-09）：距离环/方位线/方位圈/九宫格
 export { annulusToLines, circleRing, bearingRay, gridLines, bearingRingTicks } from './core/annulus'
 export type { AnnulusItem, AnnulusKind } from './core/annulus'

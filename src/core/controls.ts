@@ -14,9 +14,16 @@ import { useMapUiStore } from './store'
 /** 原生控件实例缓存：重复 addControl 会报错，因此只挂载一次、之后只做增删 */
 const attached = new WeakMap<MlMap, Partial<Record<'zoom' | 'scale', maplibregl.IControl>>>()
 
+/**
+ * 各控件在地图上的落位（避免互相遮挡 —— 这是踩过的坑）：
+ *   · 缩放按钮 + 比例尺 —— **右下角成组**（缩放在上、比例尺在其下方）
+ *   · 指北针            —— 右上角、缩放按钮正下方（见 Compass 的 top 偏移）
+ *   · 鼠标位置经纬度     —— 左下角（见 CoordReadout）
+ * 早期比例尺放在左下角，与经纬度读数**完全重叠**，因此把比例尺移到右下。
+ */
 const POSITION = {
   zoom: 'top-right',
-  scale: 'bottom-left',
+  scale: 'bottom-right',
 } as const
 
 function ensureNative(map: MlMap, key: 'zoom' | 'scale') {

@@ -36,8 +36,8 @@ export const Compass: React.FC<{ size?: number; force?: boolean }> = ({ size = 4
       title="指北针：N 始终指向正北；点击复位正北"
       onClick={() => mapInstance.current?.easeTo({ bearing: 0, duration: 300 })}
       style={{
-        // 避开 MapLibre 自带的缩放控件（top-right，约 10–70px 高），放在其正下方
-        position: 'absolute', top: 92, right: 12, width: size, height: size, zIndex: 9,
+        // 落在缩放按钮（top-right，约 10–62px）正下方，留 16px 间距避免贴住
+        position: 'absolute', top: 78, right: 12, width: size, height: size, zIndex: 9,
         borderRadius: '50%', cursor: 'pointer',
         background: 'rgba(8,16,30,.72)', border: '1px solid var(--panel-border, #1d3a5c)',
         backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center',

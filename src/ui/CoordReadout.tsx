@@ -33,6 +33,8 @@ export const CoordReadout: React.FC<{ dmsFormat?: boolean; style?: React.CSSProp
   return (
     <div
       style={{
+        // 左下角专属：比例尺已移到右下角（见 core/controls.ts 的 POSITION）。
+        // 早期两者都在左下角，会**完全重叠**——以后调整定位请一并核对这两处。
         position: 'absolute', left: 12, bottom: 12, zIndex: 9,
         padding: '6px 10px', fontSize: 12, fontFamily: 'Consolas, monospace',
         background: 'rgba(8,16,30,.72)', border: '1px solid var(--panel-border, #1d3a5c)',

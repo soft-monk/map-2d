@@ -12,6 +12,7 @@ import { mapInstance, layersReady } from '../core/instance'
 import { MAP_OPTIONS } from '../core/options'
 import { tileMaxZoomFromOptions } from '../core/tilePrecision'
 import { applyControls } from '../core/controls'
+import { injectControlStyle, MAP_CONTAINER_CLASS } from '../core/style'
 import { BASEMAP_CHANGE_EVENT, basemaps } from '../core/basemaps'
 import { bindPrimitiveEvents } from '../core/primitiveEvents'
 import { setPrimitiveCounter, startFpsCounter } from '../core/diagnostics'
@@ -153,6 +154,9 @@ export const MapView: React.FC<{ data: MapData; children?: React.ReactNode }> = 
 
   useEffect(() => {
     if (!hostRef.current) return
+    // 模块控件样式（比例尺/缩放按钮/署名）由模块自己注入，不依赖宿主样式表
+    injectControlStyle()
+    hostRef.current.classList.add(MAP_CONTAINER_CLASS)
     const cfg = bootRef.current.config
     const center: [number, number] = cfg?.center ?? DEFAULT_CENTER
     const zoom = cfg?.zoom ?? DEFAULT_ZOOM

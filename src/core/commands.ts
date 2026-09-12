@@ -19,6 +19,10 @@ import {
 } from './viewState'
 import { renderTiming } from './diagnostics'
 import {
+  setClusterOptions, getClusterOptions, clusterStats, setLabelPolicy, getLabelPolicy,
+  type ClusterOptions, type LabelPolicy,
+} from './clustering'
+import {
   loadReplay, clearReplay, play, pause, toggle, setSpeed, seek, seekProgress, step,
   setFollow, status, onReplayChange,
   type ReplayData, type ReplayStatus,
@@ -165,6 +169,32 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 聚合与标签策略（M2-DRAW-10 / 11）
+  /** 目标聚合开关与参数（按屏幕像素聚类；放大到 maxZoom 以上自然散开） */
+  setClusterOptions(opts: ClusterOptions) {
+    const r = setClusterOptions(opts)
+    // 立即按新参数重画目标类
+    MapDraw.render()
+    return r
+  },
+  getClusterOptions() {
+    return getClusterOptions()
+  },
+  /** 聚合统计（原始点数 / 聚合后点数 / 当前是否在聚合） */
+  getClusterStats() {
+    return clusterStats()
+  },
+
+  /** 标签分级策略（按缩放决定哪些标签出现；避让由渲染器的碰撞检测负责） */
+  setLabelPolicy(p: LabelPolicy) {
+    const r = setLabelPolicy(p)
+    MapDraw.render()
+    return r
+  },
+  getLabelPolicy() {
+    return getLabelPolicy()
   },
 
   // ------------------------------------------------------------ 回放（M2-DRAW-17 / 18、M2-API-16）

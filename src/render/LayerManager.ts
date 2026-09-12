@@ -19,6 +19,7 @@ const SRC = {
   mark: 'src-mark',
   route: 'src-route',
   shape: 'src-shape',
+  annulus: 'src-annulus',
 }
 
 const LYR = {
@@ -46,12 +47,14 @@ const LYR = {
   shapeFill: 'lyr-shape-fill',
   shapeLine: 'lyr-shape-line',
   shapeLineDashed: 'lyr-shape-line-dashed',
+  annulus: 'lyr-annulus',
+  annulusDashed: 'lyr-annulus-dashed',
 }
 
 const emptyFC = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] })
 
 /** 可独立开关的图层分组（对外公开，供图层开关面板使用） */
-export type LayerGroup = 'area' | 'pulse' | 'scan' | 'link' | 'group' | 'track' | 'trail' | 'target' | 'uav' | 'mark' | 'route'
+export type LayerGroup = 'area' | 'pulse' | 'scan' | 'link' | 'group' | 'track' | 'trail' | 'target' | 'uav' | 'mark' | 'route' | 'annulus'
 
 export const LAYER_GROUP_LABELS: Record<LayerGroup, string> = {
   area: '任务区域',
@@ -65,6 +68,7 @@ export const LAYER_GROUP_LABELS: Record<LayerGroup, string> = {
   pulse: '脉冲标记',
   mark: '标注/标记',
   route: '航线/图形区',
+  annulus: '圈层/参考线',
 }
 
 const GROUP_LAYERS: Record<LayerGroup, string[]> = {
@@ -79,6 +83,7 @@ const GROUP_LAYERS: Record<LayerGroup, string[]> = {
   uav: [LYR.uavGlow, LYR.uav, LYR.uavLabel],
   mark: [LYR.mark, LYR.markLabel],
   route: [LYR.routeGlow, LYR.route, LYR.routeDashed, LYR.shapeFill, LYR.shapeLine, LYR.shapeLineDashed],
+  annulus: [LYR.annulus, LYR.annulusDashed],
 }
 
 export const ALL_LAYER_GROUPS = Object.keys(GROUP_LAYERS) as LayerGroup[]
@@ -145,7 +150,7 @@ export class LayerManager {
     const showLink = p !== 'T0' && p !== 'T1'
     const on: string[] = []
     // 与阶段无关的图层（任务区域、标注、航线/图形区）始终按分组开关显示
-    on.push(...GROUP_LAYERS.area, ...GROUP_LAYERS.mark, ...GROUP_LAYERS.route)
+    on.push(...GROUP_LAYERS.area, ...GROUP_LAYERS.mark, ...GROUP_LAYERS.route, ...GROUP_LAYERS.annulus)
     if (recon) on.push(LYR.scan)
     if (recon || p === 'T7') on.push(LYR.trail)
     // 无人机位置：侦察阶段起显示（T3–T7）。
@@ -176,6 +181,7 @@ export class LayerManager {
     add(SRC.mark, emptyFC())
     add(SRC.route, emptyFC())
     add(SRC.shape, emptyFC())
+    add(SRC.annulus, emptyFC())
 
     // ---- 区域多边形（任务分区） ----
     map.addLayer({
@@ -321,7 +327,8 @@ export class LayerManager {
         'text-size': 10.5,
         'text-offset': [0, -1.4],
         'text-anchor': 'bottom',
-        'text-allow-overlap': false,
+        'text-allow-overlap': false,      // 避让：重叠的标签由渲染器自动隐藏（M2-DRAW-11）
+        'text-ignore-placement': false,
       },
       paint: { 'text-color': '#9fb3d1', 'text-halo-color': 'rgba(5,10,20,.85)', 'text-halo-width': 1.6 },
     })
@@ -343,7 +350,8 @@ export class LayerManager {
         'text-size': ['coalesce', ['get', 'size'], 11],
         'text-offset': [0, -1.3],
         'text-anchor': 'bottom',
-        'text-allow-overlap': false,
+        'text-allow-overlap': false,      // 避让：重叠的标签由渲染器自动隐藏（M2-DRAW-11）
+        'text-ignore-placement': false,
       },
       paint: { 'text-color': ['coalesce', ['get', 'color'], '#cfe3f5'], 'text-halo-color': 'rgba(5,10,20,.85)', 'text-halo-width': 1.8 },
     })
@@ -406,6 +414,28 @@ export class LayerManager {
         'line-color': ['coalesce', ['get', 'color'], '#3b82f6'],
         'line-width': ['coalesce', ['get', 'weight'], 1.4],
         'line-opacity': 0.9,
+        'line-dasharray': [4, 3],
+      },
+    })
+
+    // ---- 圈层类图元（需求 M2-DRAW-09：距离环 / 方位线 / 方位圈 / 九宫格） ----
+    // 实/虚两套图层（与航线同理：line-dasharray 不支持数据表达式，只能用 filter 分流）
+    map.addLayer({
+      id: LYR.annulus, type: 'line', source: SRC.annulus,
+      filter: ['!=', ['get', 'dashed'], true],
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#38bdf8'],
+        'line-width': ['coalesce', ['get', 'weight'], 1.2],
+        'line-opacity': 0.85,
+      },
+    })
+    map.addLayer({
+      id: LYR.annulusDashed, type: 'line', source: SRC.annulus,
+      filter: ['==', ['get', 'dashed'], true],
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#38bdf8'],
+        'line-width': ['coalesce', ['get', 'weight'], 1.2],
+        'line-opacity': 0.85,
         'line-dasharray': [4, 3],
       },
     })
@@ -665,6 +695,12 @@ export class LayerManager {
   static setRouteFeatures(fc: GeoJSON.FeatureCollection) {
     const src = this.map?.getSource(SRC.route) as maplibregl.GeoJSONSource | undefined
     src?.setData(fc as never)
+  }
+
+  /** 圈层类图元（LineString 多条，属性：color/weight/dashed/part） */
+  static setAnnulusFeatures(fcData: GeoJSON.FeatureCollection) {
+    const src = this.map?.getSource(SRC.annulus) as maplibregl.GeoJSONSource | undefined
+    src?.setData(fcData as never)
   }
 
   /** 圆形/椭圆形区域（Polygon，属性：color/opacity/dashed/weight） */

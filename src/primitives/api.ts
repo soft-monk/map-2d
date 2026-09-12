@@ -11,6 +11,8 @@ import { LayerManager } from '../render/LayerManager'
 import { filterValid } from '../core/validate'
 import { recordRender, recordSubmit, recordWrite, reportPrimitiveError } from '../core/diagnostics'
 import { onPrimitiveEvent, type PrimitiveEvent } from '../core/primitiveEvents'
+import { annulusToLines, type AnnulusItem } from '../core/annulus'
+import { clusterOptions as _clusterCfg, clusterPoints, filterLabels, labelOptions as _labelCfg, setClusterStats as setLastClusterStats } from '../core/clustering'
 import type { LinkState, Threat, UavType } from '../core/types'
 
 // ---------------------------------------------------------------- 图元类型
@@ -18,6 +20,8 @@ export type PrimitiveKind =
   | 'area' | 'drone' | 'target' | 'link' | 'track' | 'scan' | 'pulse' | 'cluster' | 'label'
   // 需求 M2-DRAW-01 补全：航线、圆形/椭圆区域、目标区域
   | 'route' | 'shape'
+  // 需求 M2-DRAW-09 圈层类图元：距离环、方位线、方位圈、九宫格
+  | 'annulus'
 
 export interface AreaItem {
   id: string
@@ -121,6 +125,8 @@ export interface LabelItem {
   size?: number
   /** 圆点半径（px），0 表示只画文字 */
   radius?: number
+  /** 最低显示缩放（低于该层级不显示，用于标签分级，M2-DRAW-11） */
+  minZoom?: number
 }
 
 // ---------------------------------------------------------------- 需求 M2-DRAW-01 补全的图元
@@ -148,6 +154,8 @@ export interface RouteItem {
  *
  * 半径按**公里**表达，模块按当前缩放换算成度并生成多边形（与扫描图元同一套地理尺度语义）。
  */
+export type { AnnulusItem } from '../core/annulus'
+
 export interface ShapeItem {
   id: string
   /** 是否显示（默认 true） */
@@ -185,6 +193,8 @@ export interface DrawSnapshot {
   route: RouteItem[]
   /** 圆形 / 椭圆形区域、目标区域（M2-DRAW-01） */
   shape: ShapeItem[]
+  /** 圈层类图元：距离环/方位线/方位圈/九宫格（M2-DRAW-09） */
+  annulus: AnnulusItem[]
 }
 
 // ---------------------------------------------------------------- 调色板
@@ -201,6 +211,7 @@ const C = {
   label: '#cfe3f5',
   route: '#22d3ee',
   shape: '#3b82f6',
+  annulus: '#38bdf8',
   target: '#ef4444',
   search: '#f59e0b',
 }
@@ -208,12 +219,12 @@ const C = {
 // ---------------------------------------------------------------- 内部集合
 type AnyItem =
   | AreaItem | DroneItem | TargetItem | LinkItem | TrackItem | ScanItem | PulseItem | ClusterItem | LabelItem
-  | RouteItem | ShapeItem
+  | RouteItem | ShapeItem | AnnulusItem
 
 const bags: Record<PrimitiveKind, Map<string, AnyItem>> = {
   area: new Map(), drone: new Map(), target: new Map(), link: new Map(),
   track: new Map(), scan: new Map(), pulse: new Map(), cluster: new Map(), label: new Map(),
-  route: new Map(), shape: new Map(),
+  route: new Map(), shape: new Map(), annulus: new Map(),
 }
 
 /** 公里 → 像素（Web Mercator，按当前缩放） */
@@ -277,7 +288,44 @@ function ellipseRing(s: ShapeItem, segments = 72): [number, number][] {
 // （list() 读得到、export() 包含），重新显示无需重新灌数据。
 function renderKind(kind: PrimitiveKind) {
   if (!layersAvailable()) return   // 图层未建立：先攒着，MapView 就绪后 renderAll 统一补画
-  const items = [...bags[kind].values()].filter((it) => (it as { visible?: boolean }).visible !== false)
+  let items = [...bags[kind].values()].filter((it) => (it as { visible?: boolean }).visible !== false)
+
+  // 标签分级与避让（M2-DRAW-11）：按当前缩放决定哪些标签该出现
+  if (kind === 'label' && items.length) {
+    const zoom = mapInstance.current?.getZoom() ?? 0
+    const { shown } = filterLabels(items as unknown as { minZoom?: number }[], zoom)
+    items = shown as unknown as AnyItem[]
+  }
+
+  // 目标聚合（M2-DRAW-10）：按屏幕像素聚类，多点簇转成计数气泡
+  if (kind === 'target' && items.length) {
+    const map = mapInstance.current
+    const zoom = map?.getZoom() ?? 0
+    const cfg = _clusterCfg
+    if (cfg.enabled && cfg.kinds.includes('target') && zoom <= cfg.maxZoom && map) {
+      const { singles, bubbles } = clusterPoints(
+        items as unknown as { lng: number; lat: number }[],
+        (lng, lat) => map.project([lng, lat]),
+        zoom,
+      )
+      items = singles as unknown as AnyItem[]
+      // 气泡写入 cluster 类（计数气泡复用集群渲染）
+      const bubbleItems = bubbles.map((b, i) => ({
+        id: `cluster-${b.count}-${i}-${Math.round(b.lng * 1e4)}`,
+        lng: b.lng, lat: b.lat, name: String(b.count),
+      }))
+      bubblesRef = bubbleItems
+    } else {
+      // 未启用 / 超出 maxZoom / 地图未就绪：清掉气泡，并把统计标成"未聚合"
+      // （否则统计会停留在上一次的 active:true，看起来像"放大了还在聚合"）
+      bubblesRef = []
+      setLastClusterStats({ input: items.length, output: items.length, active: false })
+    }
+  } else if (kind === 'target') {
+    bubblesRef = []
+    setLastClusterStats({ input: 0, output: 0, active: false })
+  }
+
   const t0 = performance.now()
   try {
     renderItems(kind, items)
@@ -301,6 +349,9 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
         point(d.lng, d.lat, { id: d.id, label: d.label ?? d.id, color: d.color ?? C.drone[d.type ?? ''] ?? C.area }))))
       break
     case 'target':
+      // 聚合气泡（M2-DRAW-10）与目标点共用一次渲染：气泡走 cluster 源
+      LayerManager.setGroupFeatures(fc(bubblesRef.map((b) =>
+        point(b.lng, b.lat, { id: b.id, name: b.name, color: '#8b5cf6' }))))
       LayerManager.setTargetFeatures(fc((items as TargetItem[]).map((t) => point(t.lng, t.lat, {
         id: t.id,
         label: t.label ?? t.id,
@@ -343,6 +394,13 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
       LayerManager.setRouteFeatures(fc((items as RouteItem[]).map((r) =>
         line(r.points, { id: r.id, color: r.color ?? C.route, dashed: r.dashed ?? false, name: r.name ?? r.id }))))
       break
+    case 'annulus':
+      LayerManager.setAnnulusFeatures(fc((items as AnnulusItem[]).flatMap((a) =>
+        annulusToLines(a).map((pts, i) => line(pts, {
+          id: a.id, part: i, color: a.color ?? C.annulus,
+          weight: a.weight ?? 1.2, dashed: a.dashed ?? false,
+        })))))
+      break
     case 'shape':
       LayerManager.setShapeFeatures(fc((items as ShapeItem[]).map((s) => {
         const color = s.color ?? (s.kind === 'target' ? C.target : s.kind === 'search' ? C.search : C.shape)
@@ -370,10 +428,21 @@ function ensureZoomHook() {
   const map = mapInstance.current
   if (!map) return
   map.on('zoomend', () => {
+    // 缩放变化会影响三类渲染：
+    //   scan   —— 半径按缩放换算成像素
+    //   target —— 聚合结果随缩放变化（M2-DRAW-10）
+    //   label  —— 标签分级随缩放显现/隐藏（M2-DRAW-11）
     if (bags.scan.size > 0) renderKind('scan')
+    // 目标：只要启用过聚合就要重画——放大越过 maxZoom 时必须把气泡清掉（否则残留）
+    if (bags.target.size > 0) renderKind('target')
+    // 标签：分级由每个图元的 minZoom 决定，与"是否启用策略"无关，所以无条件重画
+    if (bags.label.size > 0) renderKind('label')
   })
   zoomHooked = true
 }
+
+/** 上一轮聚合得到的气泡（渲染 target 时一并写入 cluster 源） */
+let bubblesRef: { id: string; lng: number; lat: number; name: string }[] = []
 
 // ---------------------------------------------------------------- 批量提交（M2-API-07 / M2-NFR-14）
 // 批次内只改集合、不渲染；退出时对"受影响的类型"各提交一次（单帧渲染）。
@@ -521,7 +590,7 @@ export const MapDraw = {
       area: this.list('area'), drone: this.list('drone'), target: this.list('target'),
       link: this.list('link'), track: this.list('track'), scan: this.list('scan'),
       pulse: this.list('pulse'), cluster: this.list('cluster'), label: this.list('label'),
-      route: this.list('route'), shape: this.list('shape'),
+      route: this.list('route'), shape: this.list('shape'), annulus: this.list('annulus'),
     }
   },
 

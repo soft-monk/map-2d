@@ -61,6 +61,12 @@ export function validatePrimitive(kind: PrimitiveKind, item: unknown): string | 
         }
       }
       return null
+    case 'annulus':
+      if (!needNumber(it.lng) || !needNumber(it.lat)) return '缺少有效 lng/lat'
+      if (it.radiusKm != null && !needNumber(it.radiusKm)) return 'radiusKm 无效'
+      if (it.radiusKmList != null && !needArray(it.radiusKmList)) return 'radiusKmList 必须是数组'
+      if (it.bearing != null && !needNumber(it.bearing)) return 'bearing 无效'
+      return null
     case 'shape':
       if (!needNumber(it.lng) || !needNumber(it.lat)) return '缺少有效 lng/lat'
       if (!needNumber(it.radiusKm) || (it.radiusKm as number) <= 0) return 'radiusKm 无效'

@@ -14,6 +14,12 @@ export { CoordReadout } from './ui/CoordReadout'
 export { Legend, DEFAULT_LEGEND } from './ui/Legend'
 // 交互层：手绘 / 图元编辑 / 量算（M2-DRAW-08/12/14、M2-CTRL-10）
 export { DrawLayer } from './ui/DrawLayer'
+// 圈层类图元（M2-DRAW-09）：距离环/方位线/方位圈/九宫格
+export { annulusToLines, circleRing, bearingRay, gridLines, bearingRingTicks } from './core/annulus'
+export type { AnnulusItem, AnnulusKind } from './core/annulus'
+// 聚合与标签策略（M2-DRAW-10 / 11）
+export { setClusterOptions, getClusterOptions, clusterStats, setLabelPolicy, getLabelPolicy, clusterPoints, filterLabels } from './core/clustering'
+export type { ClusterOptions, ClusterStats, LabelPolicy } from './core/clustering'
 // 回放：模块给时间轴与播放控制，数据与存储由宿主提供（M2-DRAW-17/18、M2-API-16）
 export { ReplayBar, replayStatus } from './ui/ReplayBar'
 export {

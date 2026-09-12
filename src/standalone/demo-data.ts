@@ -163,6 +163,13 @@ export const DEMO_SNAPSHOT: DrawSnapshot = {
     { id: 'TG-1', lng: 116.452, lat: 39.878, radiusKm: 2.2, kind: 'target', color: '#ef4444', label: '目标 001 打击区' },
     { id: 'SR-1', lng: 116.361, lat: 39.842, radiusKm: 3.5, kind: 'search', label: '后勤点搜索区' },
   ],
+  // 需求 M2-DRAW-09 圈层类图元
+  annulus: [
+    { id: 'AN-1', kind: 'ring', lng: 116.3974, lat: 39.9093, radiusKmList: [5, 10, 15], label: '距离环 5/10/15km' },
+    { id: 'AN-2', kind: 'bearing-line', lng: 116.3974, lat: 39.9093, bearing: 45, lengthKm: 18, dashed: true, color: '#f59e0b', label: '方位线 045°' },
+    { id: 'AN-3', kind: 'bearing-ring', lng: 116.47, lat: 39.90, radiusKm: 8, bearing: 30, color: '#a855f7', label: '方位圈 R=8km' },
+    { id: 'AN-4', kind: 'grid', lng: 116.33, lat: 39.94, radiusKm: 2, rows: 3, cols: 3, dashed: true, color: '#8fb0cc', label: '九宫格 2km' },
+  ],
 }
 
 // ---------------------------------------------------------------- 回放演示数据

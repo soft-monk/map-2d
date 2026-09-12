@@ -30,6 +30,8 @@ const barButton: React.CSSProperties = {
   padding: '5px 11px', fontSize: 12, fontFamily: 'inherit', cursor: 'pointer', borderRadius: 6,
   background: 'rgba(10,20,36,.78)', border: '1px solid var(--panel-border, #1d3a5c)',
   color: 'var(--text-1, #cfe3f5)', backdropFilter: 'blur(6px)',
+  // 按钮多了以后 flex 会把它们压扁；这两个属性防止中文被压成"一字一行"
+  whiteSpace: 'nowrap', flex: '0 0 auto',
 }
 
 /** 绘制/量算按钮：模式、文字、悬浮说明 */
@@ -44,8 +46,8 @@ const DRAW_BUTTONS: [import('../index').DrawMode, string, string][] = [
 /** 主题按钮（M2-CTRL-13） */
 const THEME_BUTTONS: [import('../index').ThemeKey, string][] = [['day', '日间'], ['night', '夜间'], ['contrast', '高对比']]
 
-/** 12 类图元（用于角标计数） */
-const TOTAL_KINDS: import('../index').PrimitiveKind[] = ['area', 'drone', 'target', 'link', 'track', 'scan', 'pulse', 'cluster', 'label', 'route', 'shape', 'annulus']
+/** 13 类图元（用于角标计数） */
+const TOTAL_KINDS: import('../index').PrimitiveKind[] = ['area', 'drone', 'target', 'link', 'track', 'scan', 'pulse', 'cluster', 'label', 'route', 'shape', 'annulus', 'symbol']
 
 /** 控件按需显示的演示项（M2-CTRL-01 ~ 05） */
 const CONTROL_LABELS: [import('../index').MapControlKey, string][] = [
@@ -105,7 +107,15 @@ const App: React.FC = () => {
       <MapView data={data}>
         {/* 极简控制条：底图切换 / 示例图元 / 图层 / 清屏 / 复位 */}
         {!clearMode && (
-          <div style={{ position: 'absolute', top: 12, left: 12, zIndex: 10, display: 'flex', gap: 6, alignItems: 'center' }}>
+          <div
+          style={{
+            position: 'absolute', top: 12, left: 12, zIndex: 10,
+            display: 'flex', gap: 6, alignItems: 'center',
+            flexWrap: 'wrap',                 // 按钮多时换行，而不是被压扁
+            maxWidth: 'min(1080px, calc(100% - 340px))',  // 给右侧验收台留位置
+            rowGap: 6,
+          }}
+        >
             <select
               value={currentBasemapId}
               onChange={(e) => mapCommands.switchBasemap(e.target.value)}
@@ -166,6 +176,23 @@ const App: React.FC = () => {
               onClick={() => mapCommands.clearReplay()}
             >清除回放</button>
 
+            {/* 显示模式（M2-CTRL-09）：手动指定后优先于阶段推导 */}
+            <button
+              style={barButton}
+              title="手动指定显示模式：任务规划（优先于阶段推导）—— M2-CTRL-09"
+              onClick={() => { const r = mapCommands.setDisplayMode('任务规划'); window.alert('当前显示模式：' + r.mode + '（手动=' + r.manual + '，阶段推导=' + r.derived + '）') }}
+            >手动模式</button>
+            <button
+              style={barButton}
+              title="解除手动覆盖，回落到阶段推导值 —— M2-CTRL-09"
+              onClick={() => { const r = mapCommands.clearDisplayMode(); window.alert('已回落：' + r.mode + '（手动=' + r.manual + '）') }}
+            >回落模式</button>
+            <button
+              style={barButton}
+              title="载入国军标标绘符号示例（8 个，含敌我框形）—— M2-DRAW-16"
+              onClick={() => { MapDraw.set('symbol', DEMO_SNAPSHOT.symbol as never); window.alert('已载入 ' + MapDraw.list('symbol').length + ' 个标绘符号') }}
+            >载入符号</button>
+
             {/* 主题热切换（M2-CTRL-13）：运行中切换，不重建样式、不刷新页面 */}
             <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 6 }}>主题：</span>
             {THEME_BUTTONS.map(([key, label]) => (
@@ -213,7 +240,7 @@ const App: React.FC = () => {
             ))}
 
             <span style={{ fontSize: 11.5, color: 'var(--text-2, #8fb0cc)', marginLeft: 4 }}>
-              {drawn ? `已绘制 ${TOTAL_KINDS.reduce((n, k) => n + MapDraw.list(k).length, 0)} 个图元（12 类）` : '未绘制图元'}
+              {drawn ? `已绘制 ${TOTAL_KINDS.reduce((n, k) => n + MapDraw.list(k).length, 0)} 个图元（13 类）` : '未绘制图元'}
             </span>
           </div>
         )}

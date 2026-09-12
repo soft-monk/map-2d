@@ -18,6 +18,8 @@ import {
   type ViewState, type RestoreOptions, type ExportImageOptions,
 } from './viewState'
 import { renderTiming } from './diagnostics'
+import { setDisplayModeManual, clearDisplayModeOverride, displayModeState, availableDisplayModes } from './displayModeState'
+import { registerSymbol, symbolNames, symbolSvg, type SymbolDef, type SymbolAffiliation } from './symbols'
 import {
   setStyleTemplates, defineStyle, removeStyle, styleNames, getStyle, applyTheme, getTheme, currentThemeKey,
   type StyleTemplate, type ThemeKey,
@@ -173,6 +175,39 @@ export const mapCommands = {
   /** 读取某分组的透明度（未设置过为 1） */
   getLayerGroupOpacity(group: LayerGroup): number {
     return LayerManager.groupOpacity(group)
+  },
+
+  // ------------------------------------------------------------ 显示模式（M2-CTRL-08 / 09）
+  /** 手动指定显示模式：**优先于阶段推导**，直到 clearDisplayMode() 或切换场景 */
+  setDisplayMode(mode: string) {
+    return setDisplayModeManual(mode)
+  },
+  /** 解除手动覆盖，回落到阶段推导值 */
+  clearDisplayMode() {
+    return clearDisplayModeOverride()
+  },
+  /** 当前显示模式状态：{ mode, manual, derived, scenarioKey, phase } */
+  getDisplayMode() {
+    return displayModeState()
+  },
+  /** 可选模式清单（供宿主做下拉） */
+  listDisplayModes() {
+    return availableDisplayModes()
+  },
+
+  // ------------------------------------------------------------ 国军标符号库（M2-DRAW-16）
+  /** 可用符号清单（内置 12 个 + 宿主注册的） */
+  listSymbols() {
+    return symbolNames()
+  },
+  /** 注册自定义符号（覆盖同名内置符号也可） */
+  registerSymbol(def: SymbolDef) {
+    registerSymbol(def)
+    return symbolNames()
+  },
+  /** 取某符号在指定敌我属性下的 SVG（宿主可用于图例或面板） */
+  getSymbolSvg(key: string, affiliation: SymbolAffiliation = 'friend') {
+    return symbolSvg(key, affiliation)
   },
 
   // ------------------------------------------------------------ 样式模板与主题（M2-DRAW-15 / M2-CTRL-13）

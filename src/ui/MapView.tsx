@@ -14,6 +14,7 @@ import { tileMaxZoomFromOptions } from '../core/tilePrecision'
 import { applyControls } from '../core/controls'
 import { injectControlStyle, MAP_CONTAINER_CLASS } from '../core/style'
 import { reapplyTheme } from '../core/theme'
+import { syncDisplayMode } from '../core/displayModeState'
 import { BASEMAP_CHANGE_EVENT, basemaps } from '../core/basemaps'
 import { bindPrimitiveEvents } from '../core/primitiveEvents'
 import { setPrimitiveCounter, startFpsCounter } from '../core/diagnostics'
@@ -307,6 +308,9 @@ const LayerSync: React.FC<{ data: MapData }> = ({ data }) => {
   useEffect(() => {
     LayerManager.setScenario(scenarioKey)
     LayerManager.setPhase(phase)
+    // 显示模式（M2-CTRL-09）：阶段自动推导；若宿主已手动指定则保持手动值，
+    // 但切换场景会解除手动覆盖（换任务了，不该把上个任务的模式带过来）
+    syncDisplayMode(scenarioKey, phase)
   }, [scenarioKey, phase])
 
   useEffect(() => { LayerManager.setLinks(edges, topology?.nodes ?? []) }, [edges, topology])

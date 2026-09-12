@@ -41,6 +41,7 @@ const KIND_LAYERS: Record<PrimitiveKind, string[]> = {
   route: ['lyr-route', 'lyr-route-dashed', 'lyr-route-glow'],
   shape: ['lyr-shape-fill', 'lyr-shape-line', 'lyr-shape-line-dashed'],
   annulus: ['lyr-annulus', 'lyr-annulus-dashed'],
+  symbol: ['lyr-symbol', 'lyr-symbol-label'],
 }
 
 const handlers: Record<PrimitiveEventName, Set<Handler>> = {

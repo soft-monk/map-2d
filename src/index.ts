@@ -14,6 +14,17 @@ export { CoordReadout } from './ui/CoordReadout'
 export { Legend, DEFAULT_LEGEND } from './ui/Legend'
 // 交互层：手绘 / 图元编辑 / 量算（M2-DRAW-08/12/14、M2-CTRL-10）
 export { DrawLayer } from './ui/DrawLayer'
+// 显示模式（M2-CTRL-08 / 09）：阶段自动推导 + 宿主手动覆盖
+export {
+  syncDisplayMode, setDisplayModeManual, clearDisplayModeOverride, displayModeState,
+  availableDisplayModes, resetDisplayMode,
+} from './core/displayModeState'
+export type { DisplayModeState } from './core/displayModeState'
+// 国军标标绘符号库（M2-DRAW-16）
+export {
+  SYMBOLS, AFFILIATION_COLOR, registerSymbol, symbolNames, symbolSvg, imageName, ensureSymbolImages,
+} from './core/symbols'
+export type { SymbolDef, SymbolKey, SymbolAffiliation } from './core/symbols'
 // 命名样式模板与主题（M2-DRAW-15 / M2-CTRL-13）
 export {
   setStyleTemplates, defineStyle, removeStyle, styleNames, getStyle, clearStyles, resolveStyle,

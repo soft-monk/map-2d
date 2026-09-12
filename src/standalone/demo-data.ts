@@ -170,6 +170,17 @@ export const DEMO_SNAPSHOT: DrawSnapshot = {
     { id: 'AN-3', kind: 'bearing-ring', lng: 116.47, lat: 39.90, radiusKm: 8, bearing: 30, color: '#a855f7', label: '方位圈 R=8km' },
     { id: 'AN-4', kind: 'grid', lng: 116.33, lat: 39.94, radiusKm: 2, rows: 3, cols: 3, dashed: true, color: '#8fb0cc', label: '九宫格 2km' },
   ],
+  // 需求 M2-DRAW-16 国军标标绘符号（框形与颜色随敌我属性变化）
+  symbol: [
+    { id: 'SY-1', lng: 116.352, lat: 39.925, symbol: 'command', affiliation: 'friend', label: '指挥所' },
+    { id: 'SY-2', lng: 116.330, lat: 39.902, symbol: 'armor', affiliation: 'friend', label: '装甲营', rotation: 30 },
+    { id: 'SY-3', lng: 116.386, lat: 39.868, symbol: 'artillery', affiliation: 'friend', label: '炮兵连' },
+    { id: 'SY-4', lng: 116.470, lat: 39.940, symbol: 'radar', affiliation: 'hostile', label: '雷达站（敌）' },
+    { id: 'SY-5', lng: 116.492, lat: 39.906, symbol: 'missile', affiliation: 'hostile', label: '导弹阵地（敌）', rotation: 315 },
+    { id: 'SY-6', lng: 116.415, lat: 39.948, symbol: 'uav', affiliation: 'friend', label: '无人机分队', size: 1.2 },
+    { id: 'SY-7', lng: 116.318, lat: 39.880, symbol: 'medical', affiliation: 'neutral', label: '卫生所' },
+    { id: 'SY-8', lng: 116.505, lat: 39.868, symbol: 'unknown', affiliation: 'unknown', label: '不明单位', size: 0.9 },
+  ],
 }
 
 // ---------------------------------------------------------------- 回放演示数据

@@ -20,6 +20,7 @@ const SRC = {
   route: 'src-route',
   shape: 'src-shape',
   annulus: 'src-annulus',
+  symbol: 'src-symbol',
 }
 
 const LYR = {
@@ -49,12 +50,14 @@ const LYR = {
   shapeLineDashed: 'lyr-shape-line-dashed',
   annulus: 'lyr-annulus',
   annulusDashed: 'lyr-annulus-dashed',
+  symbol: 'lyr-symbol',
+  symbolLabel: 'lyr-symbol-label',
 }
 
 const emptyFC = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] })
 
 /** 可独立开关的图层分组（对外公开，供图层开关面板使用） */
-export type LayerGroup = 'area' | 'pulse' | 'scan' | 'link' | 'group' | 'track' | 'trail' | 'target' | 'uav' | 'mark' | 'route' | 'annulus'
+export type LayerGroup = 'area' | 'pulse' | 'scan' | 'link' | 'group' | 'track' | 'trail' | 'target' | 'uav' | 'mark' | 'route' | 'annulus' | 'symbol'
 
 export const LAYER_GROUP_LABELS: Record<LayerGroup, string> = {
   area: '任务区域',
@@ -69,6 +72,7 @@ export const LAYER_GROUP_LABELS: Record<LayerGroup, string> = {
   mark: '标注/标记',
   route: '航线/图形区',
   annulus: '圈层/参考线',
+  symbol: '标绘符号',
 }
 
 const GROUP_LAYERS: Record<LayerGroup, string[]> = {
@@ -84,6 +88,7 @@ const GROUP_LAYERS: Record<LayerGroup, string[]> = {
   mark: [LYR.mark, LYR.markLabel],
   route: [LYR.routeGlow, LYR.route, LYR.routeDashed, LYR.shapeFill, LYR.shapeLine, LYR.shapeLineDashed],
   annulus: [LYR.annulus, LYR.annulusDashed],
+  symbol: [LYR.symbol, LYR.symbolLabel],
 }
 
 export const ALL_LAYER_GROUPS = Object.keys(GROUP_LAYERS) as LayerGroup[]
@@ -150,7 +155,7 @@ export class LayerManager {
     const showLink = p !== 'T0' && p !== 'T1'
     const on: string[] = []
     // 与阶段无关的图层（任务区域、标注、航线/图形区）始终按分组开关显示
-    on.push(...GROUP_LAYERS.area, ...GROUP_LAYERS.mark, ...GROUP_LAYERS.route, ...GROUP_LAYERS.annulus)
+    on.push(...GROUP_LAYERS.area, ...GROUP_LAYERS.mark, ...GROUP_LAYERS.route, ...GROUP_LAYERS.annulus, ...GROUP_LAYERS.symbol)
     if (recon) on.push(LYR.scan)
     if (recon || p === 'T7') on.push(LYR.trail)
     // 无人机位置：侦察阶段起显示（T3–T7）。
@@ -182,6 +187,7 @@ export class LayerManager {
     add(SRC.route, emptyFC())
     add(SRC.shape, emptyFC())
     add(SRC.annulus, emptyFC())
+    add(SRC.symbol, emptyFC())
 
     // ---- 区域多边形（任务分区） ----
     map.addLayer({
@@ -440,6 +446,31 @@ export class LayerManager {
       },
     })
 
+    // ---- 国军标标绘符号（需求 M2-DRAW-16）----
+    map.addLayer({
+      id: LYR.symbol, type: 'symbol', source: SRC.symbol,
+      layout: {
+        'icon-image': ['get', 'icon'],
+        'icon-size': ['coalesce', ['get', 'size'], 1],
+        'icon-rotate': ['coalesce', ['get', 'rotation'], 0],
+        'icon-rotation-alignment': 'map',
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+      },
+    })
+    map.addLayer({
+      id: LYR.symbolLabel, type: 'symbol', source: SRC.symbol,
+      layout: {
+        'text-field': ['coalesce', ['get', 'label'], ''],
+        'text-size': 10.5,
+        'text-offset': [0, 1.6],
+        'text-anchor': 'top',
+        'text-allow-overlap': false,
+        'text-ignore-placement': false,
+      },
+      paint: { 'text-color': '#cfe3f5', 'text-halo-color': 'rgba(5,10,20,.85)', 'text-halo-width': 1.6 },
+    })
+
     this.startPulse()
   }
 
@@ -695,6 +726,13 @@ export class LayerManager {
   static setRouteFeatures(fc: GeoJSON.FeatureCollection) {
     const src = this.map?.getSource(SRC.route) as maplibregl.GeoJSONSource | undefined
     src?.setData(fc as never)
+  }
+
+  /** 国军标标绘符号（Point + icon，属性：icon/size/rotation/label） */
+  static setSymbolFeatures(fcData: GeoJSON.FeatureCollection) {
+    const src = this.map?.getSource(SRC.symbol) as maplibregl.GeoJSONSource | undefined
+    // icon 字段由 symbols.ts 计算后写进属性；这里只负责落源
+    src?.setData(fcData as never)
   }
 
   /** 圈层类图元（LineString 多条，属性：color/weight/dashed/part） */

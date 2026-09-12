@@ -14,6 +14,7 @@ import { onPrimitiveEvent, type PrimitiveEvent } from '../core/primitiveEvents'
 import { annulusToLines, type AnnulusItem } from '../core/annulus'
 import { clusterOptions as _clusterCfg, clusterPoints, filterLabels, labelOptions as _labelCfg, setClusterStats as setLastClusterStats } from '../core/clustering'
 import { resolveStyle } from '../core/theme'
+import { renderSymbols } from '../core/symbols'
 import type { LinkState, Threat, UavType } from '../core/types'
 
 // ---------------------------------------------------------------- 图元类型
@@ -23,6 +24,8 @@ export type PrimitiveKind =
   | 'route' | 'shape'
   // 需求 M2-DRAW-09 圈层类图元：距离环、方位线、方位圈、九宫格
   | 'annulus'
+  // 需求 M2-DRAW-16 国军标标绘符号
+  | 'symbol'
 
 export interface AreaItem {
   id: string
@@ -216,6 +219,33 @@ export interface DrawSnapshot {
   shape: ShapeItem[]
   /** 圈层类图元：距离环/方位线/方位圈/九宫格（M2-DRAW-09） */
   annulus: AnnulusItem[]
+  /** 国军标标绘符号（M2-DRAW-16） */
+  symbol: SymbolItem[]
+}
+
+/**
+ * 国军标标绘符号图元（M2-DRAW-16）。
+ * 符号图形由模块内置（12 个常用兵种）+ 宿主可扩展；框形与颜色随敌我属性变化。
+ */
+export interface SymbolItem {
+  id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15） */
+  style?: string
+  lng: number
+  lat: number
+  /** 符号 key（内置见 SYMBOLS；也可用 registerSymbol 注册自定义） */
+  symbol: string
+  /** 敌我属性（决定框形与颜色） */
+  affiliation?: 'friend' | 'hostile' | 'neutral' | 'unknown'
+  /** 旋转角度（度，正北为 0、顺时针） */
+  rotation?: number
+  /** 缩放（默认 1；0.5–4 之间比较合理） */
+  size?: number
+  /** 标注（画在符号下方） */
+  label?: string
+  color?: string
 }
 
 // ---------------------------------------------------------------- 调色板
@@ -240,12 +270,12 @@ const C = {
 // ---------------------------------------------------------------- 内部集合
 type AnyItem =
   | AreaItem | DroneItem | TargetItem | LinkItem | TrackItem | ScanItem | PulseItem | ClusterItem | LabelItem
-  | RouteItem | ShapeItem | AnnulusItem
+  | RouteItem | ShapeItem | AnnulusItem | SymbolItem
 
 const bags: Record<PrimitiveKind, Map<string, AnyItem>> = {
   area: new Map(), drone: new Map(), target: new Map(), link: new Map(),
   track: new Map(), scan: new Map(), pulse: new Map(), cluster: new Map(), label: new Map(),
-  route: new Map(), shape: new Map(), annulus: new Map(),
+  route: new Map(), shape: new Map(), annulus: new Map(), symbol: new Map(),
 }
 
 /** 公里 → 像素（Web Mercator，按当前缩放） */
@@ -366,6 +396,10 @@ function renderKind(kind: PrimitiveKind) {
 
 function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
   recordRender()                      // 真正落到数据源的渲染次数（M2-NFR-14 口径）
+  // 国军标符号：先按 items 组装要素（渲染时需要 symbol/affiliation/rotation/size）
+  const features = kind === 'symbol'
+    ? (items as SymbolItem[]).map((s) => ({ lng: s.lng, lat: s.lat, properties: { id: s.id, symbol: s.symbol, affiliation: s.affiliation ?? 'friend', rotation: s.rotation ?? 0, size: s.size ?? 1, label: s.label ?? '', color: s.color } }))
+    : []
   switch (kind) {
     case 'area':
       LayerManager.setAreaFeatures(fc((items as AreaItem[]).map((a) =>
@@ -420,6 +454,11 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
     case 'route':
       LayerManager.setRouteFeatures(fc((items as RouteItem[]).map((r) =>
         line(r.points, { id: r.id, color: r.color ?? C.route, dashed: r.dashed ?? false, name: r.name ?? r.id }))))
+      break
+    case 'symbol':
+      renderSymbols(mapInstance.current as never, features.map((f) => ({
+        type: 'Feature', properties: f.properties, geometry: { type: 'Point', coordinates: [f.lng, f.lat] },
+      })))
       break
     case 'annulus':
       LayerManager.setAnnulusFeatures(fc((items as AnnulusItem[]).flatMap((a) =>
@@ -617,7 +656,7 @@ export const MapDraw = {
       area: this.list('area'), drone: this.list('drone'), target: this.list('target'),
       link: this.list('link'), track: this.list('track'), scan: this.list('scan'),
       pulse: this.list('pulse'), cluster: this.list('cluster'), label: this.list('label'),
-      route: this.list('route'), shape: this.list('shape'), annulus: this.list('annulus'),
+      route: this.list('route'), shape: this.list('shape'), annulus: this.list('annulus'), symbol: this.list('symbol'),
     }
   },
 

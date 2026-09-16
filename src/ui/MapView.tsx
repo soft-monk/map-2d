@@ -23,6 +23,8 @@ import { BASEMAP_CHANGE_EVENT, basemaps } from '../core/basemaps'
 import { bindPrimitiveEvents } from '../core/primitiveEvents'
 import { setPrimitiveCounter, startFpsCounter } from '../core/diagnostics'
 import { useMapUiStore } from '../core/store'
+import { setStyleConfig } from '../core/markerIcon'
+import type { MapStyleConfig } from '../core/markerIcon'
 import type { MapConfigData, MapData } from '../core/types'
 
 // 视口内暂无任何瓦片时的底色（兜底样式 / 底图尚未出现的第一帧）。
@@ -139,14 +141,17 @@ function buildStyle(cfg: MapConfigData | null): maplibregl.StyleSpecification | 
  * 地图容器 props。
  * `instanceId`：多实例场景下的实例标识（M2-NFR-08）。不传时用保留 id `default`，
  * 行为与改造前**完全一致**；传了则各实例的样式/数据源/图层/相机/控件天然隔离。
+ * `style`：**可选**样式配置（位图图标 / 缺省画点 / 轨迹线宽，见 core/markerIcon）。
+ * 不传时行为与改造前逐字节一致；传了则在挂载时登记一次（宿主也可自己调 `MapDraw.setStyle()`）。
  */
 export interface MapViewProps {
   data: MapData
   children?: React.ReactNode
   instanceId?: string
+  style?: MapStyleConfig
 }
 
-export const MapView: React.FC<MapViewProps> = ({ data, children, instanceId = DEFAULT_INSTANCE_ID }) => {
+export const MapView: React.FC<MapViewProps> = ({ data, children, instanceId = DEFAULT_INSTANCE_ID, style: styleConfigProp }) => {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [ready, setReady] = useState(false)
   const setViewport = useMapUiStore((s) => s.setViewport)
@@ -157,6 +162,14 @@ export const MapView: React.FC<MapViewProps> = ({ data, children, instanceId = D
   const [basemapRev, setBasemapRev] = useState(0)
   // 初始化只做一次：用挂载时的配置快照
   const bootRef = useRef<MapData>(data)
+
+  // 可选样式配置（位图图标 / 缺省画点 / 轨迹线宽）。
+  // 不传 `style` 时这里什么都不做 —— 渲染路径与改造前完全一致。
+  useEffect(() => {
+    if (!styleConfigProp) return
+    setStyleConfig(styleConfigProp)
+    MapDraw.render()
+  }, [styleConfigProp])
 
   useEffect(() => {
     const onPrecision = () => setPrecisionRev((n) => n + 1)

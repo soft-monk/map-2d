@@ -251,6 +251,45 @@ export interface AcceptedFeature {
   expect: string
 }
 
+/**
+ * 位图图标的演示配置（对应 `map-style.json` 的 `drone` / `track` 段）。
+ *
+ * 这里刻意做成"一份配置同时展示三种情况"，方便一眼看出降级口径：
+ *   · `optical`  —— useIcon + **有效** url  → 画位图（demo-icons/demo-uav.png，独立宿主按 /icons/ 伺服）
+ *   · `radar`    —— byType 里故意指向一个 **不存在的** url → 回落画点 + 可读原因 + 计数
+ *   · 其余机型    —— useIcon=false → 一律画点
+ * 位图 URL 由**宿主**给出（本演示用同源 /icons/…），模块自己不请求任何外部地址。
+ */
+export const DEMO_MARKER_STYLE = {
+  drone: {
+    useIcon: true,
+    icon: { url: '/icons/demo-uav.png', sizePx: [32, 32] as [number, number], anchor: 'center' as const },
+    point: { radiusPx: 5, strokeColor: '#0b1220', strokeWidthPx: 1 },
+    byType: {
+      optical: { useIcon: true },
+      radar: { useIcon: true, icon: { url: '/icons/not-exist-404.png' } },
+      electronic: { useIcon: false, point: { color: '#a855f7' } },
+      comm: { useIcon: false, point: { color: '#22c55e' } },
+    },
+  },
+  track: { widthPx: 3, dashed: false, color: '#38bdf8', opacity: 0.9 },
+}
+
+/** 演示用的无人机（含四种机型，覆盖"位图 / 降级 / 画点"三条分支） */
+export const DEMO_MARKER_DRONES = [
+  { id: 'MK-OPT', lng: 116.372, lat: 39.902, type: 'optical' as const, label: '位图·光电' },
+  { id: 'MK-RAD', lng: 116.392, lat: 39.902, type: 'radar' as const, label: '降级·雷达(坏URL)' },
+  { id: 'MK-ELE', lng: 116.412, lat: 39.902, type: 'electronic' as const, label: '画点·电子' },
+  { id: 'MK-COM', lng: 116.432, lat: 39.902, type: 'comm' as const, label: '画点·通信' },
+]
+
+/** 演示用的轨迹（对比线宽：配置 3px / 图元覆写 6px / 图元覆写 1px） */
+export const DEMO_MARKER_TRACKS = [
+  { id: 'MK-TR-CFG', points: [[116.362, 39.892], [116.382, 39.894], [116.402, 39.896]] as [number, number][] },
+  { id: 'MK-TR-W6', points: [[116.362, 39.886], [116.382, 39.888], [116.402, 39.890]] as [number, number][], widthPx: 6 },
+  { id: 'MK-TR-W1', points: [[116.362, 39.880], [116.382, 39.882], [116.402, 39.884]] as [number, number][], widthPx: 1, dashed: true },
+]
+
 export const ACCEPTED_FEATURES: AcceptedFeature[] = [
   { domain: '漫游与视角', ids: 'M2-MAP-01~07', label: '飞回北京 z12', expect: '视角平滑移动；拖拽/滚轮/双击可用；方向恒正北（二维锁定）' },
   { domain: '漫游与视角', ids: 'M2-MAP-04', label: '定位到目标 001', expect: '镜头飞到该目标并放大到 z14' },
@@ -262,6 +301,8 @@ export const ACCEPTED_FEATURES: AcceptedFeature[] = [
   { domain: '图层排序', ids: 'M2-CTRL-12', label: '恢复区域原位置', expect: '区域移回目标下方' },
   { domain: '图层透明度', ids: 'M2-CTRL-12', label: '目标组半透明', expect: '目标类图元整体变淡（保留各自原始透明度语义）' },
   { domain: '图层透明度', ids: 'M2-CTRL-12', label: '目标组恢复不透明', expect: '目标恢复原样' },
+  { domain: '位图图标/线宽', ids: '本批新增', label: '位图图标 + 线宽', expect: '光电=PNG 位图、雷达(坏URL)=回落圆点并计入失败、电子/通信=画点；三条轨迹线宽 3/6/1px' },
+  { domain: '位图图标/线宽', ids: '本批新增', label: '清除样式配置', expect: 'MapDraw.setStyle(null) → 全部回到"画点 + 2px 虚线轨迹"（与未接入本能力时逐项一致）' },
   { domain: '图元（11 类）', ids: 'M2-DRAW-01', label: '只画目标', expect: '地图只剩 3 个目标点（其余类型被清空）' },
   { domain: '图元（11 类）', ids: 'M2-DRAW-01', label: '只画航线', expect: '两条虚线航线（青=侦察、琥珀=巡逻）' },
   { domain: '图元（11 类）', ids: 'M2-DRAW-01', label: '只画圆形/椭圆/目标区', expect: '蓝圆 4km、紫椭圆 9×4km(35°)、红目标区、黄虚线搜索区' },

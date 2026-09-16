@@ -139,4 +139,18 @@ export type {
   ScanItem, PulseItem, ClusterItem, LabelItem, DrawSnapshot,
 } from './primitives/api'
 
+// 位图图标 + 缺省画点 + 轨迹线宽（本批新增，**纯可选**）：
+// 不调用 setStyleConfig 时，无人机与轨迹的渲染与改造前逐字节一致。
+export {
+  setStyleConfig, onStyleConfigChange, styleConfig, droneStyleConfig, trackStyleConfig,
+  resolveMarkerPlan, iconImageName, iconFailureCount, iconLoadCount, iconFailures, onIconFailure,
+  resetIconDiagnostics, ensureMarkerImage, ensureMarkerImages,
+  DEFAULT_ICON_SIZE_PX, DEFAULT_ICON_ANCHOR, DEFAULT_POINT_RADIUS_PX, DEFAULT_POINT_STROKE_COLOR,
+  DEFAULT_POINT_STROKE_WIDTH_PX, DEFAULT_TRACK_WIDTH_PX, DEFAULT_TRACK_OPACITY,
+} from './core/markerIcon'
+export type {
+  MapStyleConfig, MarkerStyleConfig, MarkerIconConfig, PointStyleConfig, TrackStyleConfig,
+  MarkerRenderPlan, IconAnchor, IconFailure,
+} from './core/markerIcon'
+
 export type { MapData, MapToolKey, MapViewport, MapConfigData, Group, LinkEdge, LinkTopology, Target, TargetTrackPoint, UavPosEvent, Phase, ScenarioKey } from './core/types'

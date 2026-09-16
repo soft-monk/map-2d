@@ -36,8 +36,12 @@ const LYR = {
   uav: 'lyr-uav',
   uavGlow: 'lyr-uav-glow',
   uavLabel: 'lyr-uav-label',
+  /** 位图图标层（本批新增，可选能力）：只在启用位图且图片加载成功时才有要素命中 */
+  uavIcon: 'lyr-uav-icon',
   scan: 'lyr-scan',
   track: 'lyr-track',
+  /** 虚线轨迹层（本批新增）：`line-dasharray` 不支持数据表达式，只能用 filter 分流 */
+  trackDashed: 'lyr-track-dashed',
   trail: 'lyr-trail',
   pulse: 'lyr-pulse',
   mark: 'lyr-mark',
@@ -81,10 +85,10 @@ const GROUP_LAYERS: Record<LayerGroup, string[]> = {
   scan: [LYR.scan],
   link: [LYR.linkGlow, LYR.link],
   group: [LYR.group, LYR.groupLabel],
-  track: [LYR.track],
+  track: [LYR.track, LYR.trackDashed],
   trail: [LYR.trail],
   target: [LYR.targetGlow, LYR.target, LYR.targetLabel],
-  uav: [LYR.uavGlow, LYR.uav, LYR.uavLabel],
+  uav: [LYR.uavGlow, LYR.uavIcon, LYR.uav, LYR.uavLabel],
   mark: [LYR.mark, LYR.markLabel],
   route: [LYR.routeGlow, LYR.route, LYR.routeDashed, LYR.shapeFill, LYR.shapeLine, LYR.shapeLineDashed],
   annulus: [LYR.annulus, LYR.annulusDashed],
@@ -108,6 +112,8 @@ export class LayerManager {
   private static opacity = new Map<LayerGroup, number>()
   /** 各图层原始的透明度数值（乘系数前的基准），避免反复相乘 */
   private static baseOpacity = new Map<string, number>()
+  /** setPhase 挂出的"样式重建后重放可见性"回调（触发即摘除，见 setPhase） */
+  private static phaseRebindOff: (() => void) | null = null
 
   /** 图层分组显隐（MAP-04：多图层可独立开关） */
   static setGroupVisible(group: LayerGroup, visible: boolean) {
@@ -161,8 +167,12 @@ export class LayerManager {
     // 无人机位置：侦察阶段起显示（T3–T7）。
     // 修正：此前该组从未被阶段规则打开，导致 setUavs 灌入的实时位置不显示
     //（与《技术需求文档》MAP-02「集群动态图层」的要求不符）。
-    if (recon || p === 'T7') on.push(LYR.uav, LYR.uavGlow, LYR.uavLabel)
-    if (recon && this.scenario === 'scenario-2') on.push(LYR.track)
+    // 注意：新增的位图图标层与圆点层**同属 uav 组**，必须一起进这个集合——否则会出现
+    // "分组开关点得动但画面没反应"（该图层被阶段规则关着）这种自相矛盾的状态。
+    if (recon || p === 'T7') on.push(LYR.uav, LYR.uavGlow, LYR.uavIcon, LYR.uavLabel)
+    // 轨迹：轨迹是"目标轨迹回放"语义，模块既有规则只在 scenario-2 的侦察阶段显示。
+    // 新增的虚线轨迹层与实线层同属 track 组，必须一起进集合（理由同上）。
+    if (recon && this.scenario === 'scenario-2') on.push(LYR.track, LYR.trackDashed)
     if (showTarget) on.push(LYR.target, LYR.targetLabel, LYR.targetGlow, LYR.pulse)
     if (showLink) on.push(LYR.link, LYR.linkGlow)
     if (showGroup) on.push(LYR.group, LYR.groupLabel)
@@ -270,9 +280,29 @@ export class LayerManager {
     })
 
     // ---- 轨迹回溯 ----
+    // 本批新增：线宽 / 透明度改为数据驱动（属性 `width` / `lineOpacity`），
+    // 由绘图 API 按「图元字段 > 样式配置 > 内置缺省」解析后写入。
+    // 实/虚仍用 filter 分流：MapLibre 的 line-dasharray **不支持数据表达式**。
+    // 属性 `dash` 用数字（1 = 虚线、0 = 实线）：MapLibre 的 `==` 过滤器对布尔属性
+    // 要求字面量类型完全一致（写 true 会因 "boolean" vs "number" 报样式错），数字最稳。
     map.addLayer({
       id: LYR.track, type: 'line', source: SRC.track,
-      paint: { 'line-color': '#ef4444', 'line-width': 2, 'line-dasharray': [3, 2], 'line-opacity': 0.9 },
+      filter: ['!=', ['get', 'dash'], 1],
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#ef4444'],
+        'line-width': ['coalesce', ['get', 'width'], 2],
+        'line-opacity': ['coalesce', ['get', 'lineOpacity'], 0.9],
+      },
+    })
+    map.addLayer({
+      id: LYR.trackDashed, type: 'line', source: SRC.track,
+      filter: ['==', ['get', 'dash'], 1],
+      paint: {
+        'line-color': ['coalesce', ['get', 'color'], '#ef4444'],
+        'line-width': ['coalesce', ['get', 'width'], 2],
+        'line-opacity': ['coalesce', ['get', 'lineOpacity'], 0.9],
+        'line-dasharray': [3, 2],
+      },
     })
 
     // ---- 无人机尾迹 ----
@@ -317,13 +347,32 @@ export class LayerManager {
     })
 
     // ---- 无人机 ----
+    // 本批新增（可选能力）：半径 / 填充 / 描边改为数据驱动，属性由绘图 API 按
+    // 「图元字段 > 样式配置 > 内置缺省」写进要素；缺省值就是改造前的取值
+    // （半径 5、描边 #e8f1ff、描边宽 1），因此不配样式时画面不变。
+    // 只画"没有位图可用"的那些（`hasIcon` 为真时由下面的图标层负责）。
     map.addLayer({
       id: LYR.uav, type: 'circle', source: SRC.uav,
+      filter: ['!=', ['get', 'hasIcon'], true],
       paint: {
-        'circle-radius': 5,
+        'circle-radius': ['coalesce', ['get', 'radius'], 5],
         'circle-color': ['get', 'color'],
-        'circle-stroke-color': '#e8f1ff',
-        'circle-stroke-width': 1,
+        'circle-stroke-color': ['coalesce', ['get', 'strokeColor'], '#e8f1ff'],
+        'circle-stroke-width': ['coalesce', ['get', 'strokeWidth'], 1],
+      },
+    })
+    // 位图图标层：同一数据源，只画命中 `hasIcon` 的要素。
+    // 图片由 core/markerIcon.ts 用 `map.addImage` 注册；**加载失败时该要素不会
+    // 带上 hasIcon**，于是自动由上面的圆点层画出来 —— 这就是"降级为点"的落点。
+    map.addLayer({
+      id: LYR.uavIcon, type: 'symbol', source: SRC.uav,
+      filter: ['==', ['get', 'hasIcon'], true],
+      layout: {
+        'icon-image': ['get', 'icon'],
+        'icon-size': ['coalesce', ['get', 'iconSize'], 1],
+        'icon-anchor': ['coalesce', ['get', 'iconAnchor'], 'center'],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
       },
     })
     map.addLayer({
@@ -569,6 +618,21 @@ export class LayerManager {
   static setPhase(p: Phase) {
     this.phase = p
     this.applyVisibility()
+    // 阶段是模块级状态，而"换底图"会重建样式（图层对象全新，新图层的默认可见性
+    // 不受此前 setPhase 影响）。这里给下一次样式重建挂**一次性**回调，把当前阶段
+    // 再应用一遍；回调触发即摘除，不会长期驻留（`styledata` 在瓦片更新时也会发）。
+    const map = this.map
+    if (!map || this.phaseRebindOff) return
+    const off = () => {
+      this.phaseRebindOff = null
+      map.off('styledata', onStyledata)
+    }
+    const onStyledata = () => {
+      off()
+      this.applyVisibility()
+    }
+    this.phaseRebindOff = off
+    map.on('styledata', onStyledata)
   }
 
   // ---------------------------------------------------------------- 数据
@@ -641,6 +705,9 @@ export class LayerManager {
     const colorOf: Record<string, string> = {
       optical: '#22d3ee', radar: '#f59e0b', electronic: '#a855f7', comm: '#22c55e',
     }
+    // 注意：这里刻意**不写 hasIcon**——`['!=', ['get','hasIcon'], true]` 对"属性不存在"
+    // 求值为真，因此圆点层照旧画；图标层不会命中。这条"业务数据直灌"入口的行为
+    // 与改造前一致（位图能力只在绘图 API 那条路上生效，见 primitives/api.ts）。
     const feats: GeoJSON.Feature[] = list.map((u) => ({
       type: 'Feature',
       properties: { label: u.groupId ?? u.type, color: colorOf[u.type ?? ''] ?? '#22d3ee', battery: u.battery },
@@ -686,7 +753,9 @@ export class LayerManager {
     if (!points.length) return
     const feats: GeoJSON.Feature[] = [{
       type: 'Feature',
-      properties: {},
+      // dash:1 —— 这条"业务数据直灌"入口改造前就是虚线（lyr-track 的 line-dasharray [3,2]），
+      // 分流到新的虚线层后保持原样。
+      properties: { dash: 1 },
       geometry: { type: 'LineString', coordinates: points.map((p) => [p.lng, p.lat]) },
     }]
     const src = this.map?.getSource(SRC.track) as maplibregl.GeoJSONSource | undefined

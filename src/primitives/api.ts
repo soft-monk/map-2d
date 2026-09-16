@@ -16,6 +16,13 @@ import { clusterOptions as _clusterCfg, clusterPoints, filterLabels, labelOption
 import { resolveStyle } from '../core/theme'
 import { applyDegrade } from '../core/degrade'
 import { renderSymbols } from '../core/symbols'
+import {
+  DEFAULT_POINT_RADIUS_PX, DEFAULT_POINT_STROKE_COLOR, DEFAULT_POINT_STROKE_WIDTH_PX,
+  DEFAULT_TRACK_OPACITY, DEFAULT_TRACK_WIDTH_PX, DEFAULT_ICON_SIZE_PX,
+  ensureMarkerImages, iconFailureCount, iconImageName, iconLoadCount,
+  resolveMarkerPlan, setStyleConfig, styleConfig,
+  type MapStyleConfig, type MarkerRenderPlan,
+} from '../core/markerIcon'
 import type { LinkState, Threat, UavType } from '../core/types'
 
 // ---------------------------------------------------------------- 图元类型
@@ -52,6 +59,29 @@ export interface DroneItem {
   type?: UavType
   color?: string
   label?: string
+  /**
+   * 画点半径（px）。**可选**：不给则按「样式配置 `drone.point.radiusPx` > 5」取值。
+   * 只在"回落画点"时生效（画位图时由 `icon.sizePx` 决定大小）。
+   */
+  radiusPx?: number
+}
+
+export interface TrackItem {
+  id: string
+  /** 是否显示（默认 true） */
+  visible?: boolean
+  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
+  style?: string
+  points: [number, number][]
+  color?: string
+  dashed?: boolean
+  /**
+   * 线宽（px）。**可选**：不给则按「样式配置 `track.widthPx` > 2」取值
+   * —— 2 是模块改造前的固定线宽，因此不传本字段时画面与今天一致。
+   */
+  widthPx?: number
+  /** 线透明度；不给则按「样式配置 `track.opacity` > 0.9」取值（0.9 为改造前的取值） */
+  opacity?: number
 }
 
 export interface TargetItem {
@@ -81,17 +111,6 @@ export interface LinkItem {
   state?: LinkState
   color?: string
   label?: string
-}
-
-export interface TrackItem {
-  id: string
-  /** 是否显示（默认 true） */
-  visible?: boolean
-  /** 命名样式模板名（M2-DRAW-15）；登记后用 mapCommands.setStyleTemplates() */
-  style?: string
-  points: [number, number][]
-  color?: string
-  dashed?: boolean
 }
 
 export interface ScanItem {
@@ -410,10 +429,14 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
       LayerManager.setAreaFeatures(fc((items as AreaItem[]).map((a) =>
         polygon(a.polygon, { id: a.id, color: a.color ?? C.area, label: a.label ?? '', opacity: a.opacity ?? 0.1 }))))
       break
-    case 'drone':
-      LayerManager.setUavFeatures(fc((items as DroneItem[]).map((d) =>
-        point(d.lng, d.lat, { id: d.id, label: d.label ?? d.id, color: d.color ?? C.drone[d.type ?? ''] ?? C.area }))))
+    case 'drone': {
+      // 位图图标 + 缺省画点（本批新增，**纯可选**）：
+      //   未登记样式配置时，每个图元都解析成"画点"，且属性就是改造前的固定取值
+      //   （半径 5 / 描边 #e8f1ff / 描边宽 1），因此画面与今天逐像素一致。
+      //   登记了样式配置时：useIcon 且图标可用 → 位图；否则 → 画点。
+      renderDrones(items as DroneItem[])
       break
+    }
     case 'target':
       // 聚合气泡（M2-DRAW-10）与目标点共用一次渲染：气泡走 cluster 源
       LayerManager.setGroupFeatures(fc(bubblesRef.map((b) =>
@@ -430,10 +453,23 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
       LayerManager.setLinkFeatures(fc((items as LinkItem[]).map((l) =>
         line([l.from, l.to], { id: l.id, color: l.color ?? C.link[l.state ?? ''] ?? C.link.green, state: l.state ?? 'green', name: l.label ?? l.id }))))
       break
-    case 'track':
+    case 'track': {
+      // 轨迹线宽 / 透明度改为数据驱动（本批新增，**纯可选**）：
+      //   解析优先级 = 图元字段 > 样式配置 > 内置缺省（2px / 0.9），
+      //   缺省即改造前的固定取值，因此不配、不传时画面不变。
+      //   `dash` 用数字分流（1 = 虚线、0 = 实线）——line-dasharray 不支持数据表达式。
+      const tcfg = styleConfig()?.track
       LayerManager.setTrackFeatures(fc((items as TrackItem[]).map((t) =>
-        line(t.points, { id: t.id, color: t.color ?? C.track, dashed: t.dashed ?? true }))))
+        line(t.points, {
+          id: t.id,
+          color: t.color ?? tcfg?.color ?? C.track,
+          width: t.widthPx ?? tcfg?.widthPx ?? DEFAULT_TRACK_WIDTH_PX,
+          lineOpacity: t.opacity ?? tcfg?.opacity ?? DEFAULT_TRACK_OPACITY,
+          // 改造前的默认是虚线（lyr-track 的 line-dasharray [3,2]），这里保持不变
+          dash: (t.dashed ?? tcfg?.dashed ?? true) ? 1 : 0,
+        }))))
       break
+    }
     case 'scan':
       LayerManager.setScanFeatures(fc((items as ScanItem[]).map((s) =>
         point(s.lng, s.lat, {
@@ -490,6 +526,129 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
 
 function renderAll() {
   ;(Object.keys(bags) as PrimitiveKind[]).forEach(renderKind)
+}
+
+// ---------------------------------------------------------------- 无人机：位图图标 + 缺省画点
+//
+// 为什么分两步（同步落点 + 异步升级为位图）：
+//   位图是**异步**解码的，而 MapLibre 的 `icon-image` 一旦取不到图片就什么都不画。
+//   如果先等图片再落数据，快照到达与画面之间会有一段空白；如果只落位图，
+//   加载失败时该无人机就彻底消失 —— 两者都不能接受。
+//   因此：**先按"画点"落数据**（立刻可见、与改造前完全一致），
+//   图片就绪后再把这一批要点重落一次、给命中者打上 `hasIcon`，圆点层自动让位给图标层。
+//   图片永远加载不出来的那些，就一直是点 —— 这就是"加载失败降级为点"。
+
+/** 正在等待图片的无人机集合（按地图实例隔离；同一 URL 只等一次） */
+let pendingIconKey = ''
+let pendingIcons = false
+
+/** 已经失败过的图标 URL：同一张坏图不再无限重试（每次失败仍会被 markerIcon 计数） */
+const badIconUrls = new Set<string>()
+
+/**
+ * 允许对"此前失败过的图标 URL"重新发起一次加载。
+ * 配置变化时自动调用（换配置 = 表达"再试一次"的意图）；
+ * 图标服务临时不可用后恢复的宿主也可以手动调 `MapDraw.retryIconLoads()`。
+ */
+export function retryIconLoads(): void {
+  badIconUrls.clear()
+}
+
+/** 供排障/自测读取：最近一次快照里"想画位图但回落成点"的图元 id → 原因 */
+const degradedIcons = new Map<string, string>()
+
+/** 最近一次无人机渲染的位图/画点统计（自测与宿主排障用） */
+let lastDroneRenderMode = { icon: 0, point: 0 }
+
+/**
+ * 快照 → 要素。`okImages` 里有的图片名才会被标成位图；其余一律走圆点层。
+ * 未登记样式配置时，每个图元都解析成画点，属性就是改造前的固定取值
+ * （半径 5 / 描边 #e8f1ff / 描边宽 1）—— 因此不配样式时画面与今天一致。
+ */
+function droneFeatures(items: DroneItem[], okImages: Set<string>): GeoJSON.Feature[] {
+  const cfg = styleConfig()?.drone
+  return items.map((d) => {
+    const plan: MarkerRenderPlan = resolveMarkerPlan(d, cfg)
+    const props: Record<string, unknown> = {
+      id: d.id,
+      label: d.label ?? d.id,
+      // 图元 color > 样式配置 point.color > 内置按机型调色板（保持改造前的优先级）
+      color: plan.color ?? C.drone[d.type ?? ''] ?? C.area,
+      radius: plan.radiusPx,
+      strokeColor: plan.strokeColor,
+      strokeWidth: plan.strokeWidthPx,
+    }
+    if (plan.mode === 'icon' && plan.image && okImages.has(plan.image)) {
+      props.hasIcon = true
+      props.icon = plan.image
+      props.iconSize = iconScale(plan.sizePx)
+      props.iconAnchor = plan.anchor
+    } else if (plan.mode === 'icon') {
+      // 想画位图但图片不可用 —— 记下可读原因，画点兜底
+      degradedIcons.set(d.id, plan.fallbackReason ?? `图标不可用：${plan.url ?? '(无 url)'}`)
+    }
+    return point(d.lng, d.lat, props)
+  })
+}
+
+/** 快照里所有"想画位图"的 URL（去重，带上各自的设计尺寸） */
+function wantedIcons(items: DroneItem[]): { url: string; sizePx?: [number, number] }[] {
+  const cfg = styleConfig()?.drone
+  const seen = new Map<string, [number, number] | undefined>()
+  for (const d of items) {
+    const plan = resolveMarkerPlan(d, cfg)
+    if (plan.mode !== 'icon' || !plan.url) continue
+    if (badIconUrls.has(plan.url)) continue
+    if (!seen.has(plan.url)) seen.set(plan.url, plan.sizePx)
+  }
+  return [...seen.entries()].map(([url, sizePx]) => ({ url, sizePx }))
+}
+
+/** 设计像素尺寸 → MapLibre `icon-size` 倍数（图片按 1:1 像素注册，28px 的图就是 28/24 倍） */
+function iconScale(sizePx?: [number, number]): number {
+  const [w, h] = sizePx ?? DEFAULT_ICON_SIZE_PX
+  const base = Math.max(1, DEFAULT_ICON_SIZE_PX[0])
+  return Math.max(0.05, Math.min(8, Math.max(w, h) / base))
+}
+
+function renderDrones(items: DroneItem[]) {
+  const map = mapInstance.current
+  const urls = wantedIcons(items)
+
+  if (!urls.length) {
+    // 没有位图诉求（未配样式 / useIcon=false / url 缺失 / 已知坏图）：
+    // 一次画点落库，与改造前同一条路径
+    degradedIcons.clear()
+    pendingIcons = false
+    const feats = droneFeatures(items, new Set())
+    lastDroneRenderMode = { icon: 0, point: feats.length }
+    LayerManager.setUavFeatures(fc(feats))
+    return
+  }
+
+  // 已经注册进 MapLibre 的图片立刻可用（换底图重建样式后重放也走这条）
+  const ready = new Set(urls.map((u) => iconImageName(u.url)).filter((n) => !!map?.hasImage(n)))
+  const allReady = ready.size === urls.length
+  const feats = droneFeatures(items, ready)
+  degradedIcons.clear()
+  const iconN = feats.filter((f) => (f.properties as { hasIcon?: boolean })?.hasIcon).length
+  lastDroneRenderMode = { icon: iconN, point: feats.length - iconN }
+  LayerManager.setUavFeatures(fc(feats))
+
+  if (allReady) { pendingIcons = false; return }
+
+  // 图片还没齐：异步加载，成功后自动重落一次数据（成功的升为位图，失败的继续画点）
+  const key = urls.map((u) => u.url).sort().join('|')
+  if (pendingIcons && pendingIconKey === key) return
+  pendingIcons = true
+  pendingIconKey = key
+  void ensureMarkerImages(map, urls).then((ok) => {
+    pendingIcons = false
+    for (const u of urls) if (!ok.has(iconImageName(u.url))) badIconUrls.add(u.url)
+    const still = [...bags.drone.values()].filter((it) => (it as { visible?: boolean }).visible !== false) as DroneItem[]
+    if (still.length) renderDrones(still)
+    else LayerManager.setUavFeatures(fc([]))
+  })
 }
 
 // 缩放变化后，扫描半径需要按新的缩放重算
@@ -604,6 +763,53 @@ export const MapDraw = {
    */
   on(name: 'click' | 'hover', fn: (e: PrimitiveEvent) => void): () => void {
     return onPrimitiveEvent(name, fn)
+  },
+
+  // -------------------------------------------------------------- 样式配置（本批新增，可选能力）
+  /**
+   * 登记"位图图标 + 缺省画点 + 轨迹线宽"的样式配置。**纯可选**：
+   * 不调用它时，无人机与轨迹的渲染结果与改造前逐字节一致。
+   *
+   * 形状与 `map-style.json` 一致，可直接把该 JSON 传进来（未识别字段会被忽略）。
+   * 传 `null` 等价于"清除配置、回到未配置状态"。登记后立即重画 drone / track 两类。
+   *
+   * @example
+   * MapDraw.setStyle(config)   // config = 读取 map-style.json 得到的对象
+   */
+  setStyle(config: MapStyleConfig | null): MapStyleConfig | null {
+    const next = setStyleConfig(config)
+    // 换配置 = 明确表达"用新的样式重来一次"，因此把此前失败的图标重新纳入尝试范围
+    // （否则"先坏后好"的场景会永远停在画点上，见 examples/marker-style-acceptance.mjs 的 ②/③ 段）
+    retryIconLoads()
+    if (layersAvailable()) {
+      renderKind('drone')
+      renderKind('track')
+    }
+    return next
+  },
+
+  /** 重新尝试此前加载失败的位图图标（图标服务恢复后调用；随后 `render()` 即可生效） */
+  retryIconLoads(): void {
+    retryIconLoads()
+    if (layersAvailable()) renderKind('drone')
+  },
+
+  /** 读取当前样式配置（副本；未配置返回 null） */
+  getStyle(): MapStyleConfig | null {
+    return styleConfig()
+  },
+
+  /**
+   * 位图图标的加载统计 —— 用于确认"降级为点**并计数**"。
+   * `failed` = 累计加载失败次数（每次失败都会同时通过 `onIconFailure` 回调给出可读原因）。
+   */
+  iconStats(): { loaded: number; failed: number; degraded: number; lastMode: { icon: number; point: number } } {
+    return { loaded: iconLoadCount(), failed: iconFailureCount(), degraded: degradedIcons.size, lastMode: { ...lastDroneRenderMode } }
+  },
+
+  /** 最近一次快照里"想画位图但回落成点"的图元 id → 可读原因 */
+  degradedIcons(): { id: string; reason: string }[] {
+    return [...degradedIcons.entries()].map(([id, reason]) => ({ id, reason }))
   },
 
   // -------------------------------------------------------------- 单个图元显隐（M2-DRAW-03）

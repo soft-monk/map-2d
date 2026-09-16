@@ -8,7 +8,7 @@ import {
   runtimeStats, useMapUiStore,
 } from '../index'
 import type { PrimitiveKind } from '../index'
-import { ACCEPTED_FEATURES, DEMO_SNAPSHOT, OPEN_ITEMS } from './demo-data'
+import { ACCEPTED_FEATURES, DEMO_MARKER_DRONES, DEMO_MARKER_STYLE, DEMO_MARKER_TRACKS, DEMO_SNAPSHOT, OPEN_ITEMS } from './demo-data'
 
 const PANEL: React.CSSProperties = {
   background: 'rgba(8,16,30,.86)',
@@ -259,6 +259,30 @@ export const Acceptance: React.FC<{ onClose?: () => void }> = ({ onClose }) => {
         })
         const w3 = mapCommands.getRenderTiming()
         say(`非批量：写入 ${w1.writes - w0.writes} 次 → 渲染 ${w1.renders - w0.renders} 次；批量：写入 ${w3.writes - w2.writes} 次 → 渲染 ${w3.renders - w2.renders} 次`)
+        break
+      }
+      case '位图图标 + 线宽': {
+        // 本批新增能力：位图图标 + 缺省画点 + 轨迹线宽。
+        // 一次点击同时演示三条分支：位图生效 / URL 无效回落并计数 / 未启用位图直接画点。
+        MapDraw.setStyle(DEMO_MARKER_STYLE as never)
+        MapDraw.set('drone', DEMO_MARKER_DRONES as never)
+        MapDraw.set('track', DEMO_MARKER_TRACKS as never)
+        // 位图是异步解码的，稍等一拍再读统计才是最终结果
+        window.setTimeout(() => {
+          const s = MapDraw.iconStats()
+          const deg = MapDraw.degradedIcons()
+          say(`位图 ${s.lastMode.icon} 个 / 画点 ${s.lastMode.point} 个；图标加载成功 ${s.loaded} · 失败 ${s.failed}`
+            + (deg.length ? `；降级原因：${deg.map((d) => `${d.id}→${d.reason}`).join('；')}` : ''))
+        }, 900)
+        say('已登记样式配置：useIcon + /icons/demo-uav.png（32px）；radar 机型指向不存在的 URL → 应回落画点')
+        break
+      }
+      case '清除样式配置': {
+        MapDraw.setStyle(null)
+        MapDraw.set('drone', DEMO_MARKER_DRONES.map((d) => ({ id: d.id, lng: d.lng, lat: d.lat, type: d.type, label: d.label })) as never)
+        MapDraw.set('track', DEMO_MARKER_TRACKS.map((t) => ({ id: t.id, points: t.points })) as never)
+        const s = MapDraw.iconStats()
+        say(`已清除样式配置 → 全部回落画点（位图 ${s.lastMode.icon} / 画点 ${s.lastMode.point}）；轨迹回到内置默认 2px 虚线`)
         break
       }
       case '刷新指标':

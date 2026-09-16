@@ -12,6 +12,18 @@ const TILES_DIR = process.env.MAP2D_TILES_DIR
   ? path.resolve(process.env.MAP2D_TILES_DIR)
   : fileURLToPath(new URL('./tiles', import.meta.url))
 
+/**
+ * 演示图标目录（`demo-icons/`，随模块入库的一份 32×32 PNG）。
+ *
+ * 为什么不用 `public/icons/`：
+ *   · `public/` 的目录扫描只在 Vite **启动时**做一次，启动后新建的文件会命中 SPA 兜底
+ *     —— 浏览器拿到的是 **HTML 而不是 PNG**，位图解码失败后静默回落成圆点，很难排障；
+ *   · `public/icons/` 是自证脚本现场生成测试图标的目录（已在 .gitignore 里），
+ *     两者混在一起会被脚本的清理逻辑连带删掉。
+ * 因此演示图标单独放一个目录，并由这里显式按 MIME 伺服。
+ */
+const ICONS_DIR = fileURLToPath(new URL('./demo-icons', import.meta.url))
+
 const MIME: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -57,6 +69,21 @@ function localTiles(): Plugin {
 
       server.middlewares.use((req, res, next) => {
         const url = (req.url || '').split('?')[0]
+        if (!url.startsWith('/icons/')) return next()
+        const rel = decodeURIComponent(url.slice('/icons/'.length))
+        if (!rel || rel.includes('..')) return next()
+        const file = path.join(ICONS_DIR, rel)
+        fs.stat(file, (err, st) => {
+          if (err || !st.isFile()) return next()      // 没有这个图标 → 交给 SPA 兜底（宿主会看到解码失败并降级）
+          res.setHeader('Content-Type', MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream')
+          res.setHeader('Content-Length', String(st.size))
+          res.setHeader('Cache-Control', 'no-cache')
+          fs.createReadStream(file).pipe(res)
+        })
+      })
+
+      server.middlewares.use((req, res, next) => {
+        const url = (req.url || '').split('?')[0]
         if (!url.startsWith('/tiles/')) return next()
         const rel = decodeURIComponent(url.slice('/tiles/'.length))
         if (!rel || rel.includes('..')) return next()
@@ -82,6 +109,12 @@ export default defineConfig({
     host: '0.0.0.0',
     port: 5180,
     strictPort: false,
+    // 编辑器/工具做"原子写"时会先在源码目录建一个临时目录再改名，
+    // Windows 上这个中间态目录经常已经被删掉 → chokidar 去 watch 时 EBUSY 并**打挂 dev server**。
+    // 这些中间态目录不需要被监听，直接忽略。另外 dist/ 是构建产物，也没必要监听。
+    watch: {
+      ignored: ['**/.*.tmpdir/**', '**/*.tmpdir/**', '**/dist/**'],
+    },
     // 本地 tiles/ 没有的瓦片才走这里：借用主系统后端托管的瓦片（后端未启动则请求失败，地图回落缺口底色）
     proxy: {
       '/tiles': { target: 'http://127.0.0.1:8080', changeOrigin: true },

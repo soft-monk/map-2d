@@ -168,10 +168,16 @@ export function removeVertex(pts: LngLat[], index: number, min: number): LngLat[
 }
 
 /**
- * 吸附：在候选点里找离目标最近、且距离小于阈值的点。
- * `thresholdMeters` 由调用方按屏幕像素换算而来（见 DrawLayer）。
+ * **命中检测**：在候选点里找离目标最近、且距离小于阈值的那个点。
+ * `thresholdMeters` 由调用方按屏幕像素换算而来（见 DrawLayer 的顶点拖拽）。
+ *
+ * ★ 2026-09-18（用户："点上面有吸附功能？没必要，可以删除该功能"）：
+ *   这里原先是 `snapTo()` —— **绘制时的光标吸附**，模块会把你点的位置吸到附近的已有点上，
+ *   并在屏幕上画一个吸附标记 + 提示「吸附到 …」。那个功能**已整条删除**。
+ *   本函数保留下来，只服务**顶点拖拽的命中检测**（"按下的是哪个手柄"）—— 那不是吸附，
+ *   去掉它顶点就拖不动了。名字改成 `nearestWithin` 以免与已删的吸附混淆。
  */
-export function snapTo(
+export function nearestWithin(
   target: LngLat,
   candidates: { point: LngLat; label?: string }[],
   thresholdMeters: number,

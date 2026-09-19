@@ -1,9 +1,10 @@
-// map-2d · 鼠标位置经纬度控件（需求 M2-CTRL-03）
+﻿// map-2d · 鼠标位置经纬度控件（需求 M2-CTRL-03）
 //
 // 自绘组件（不依赖宿主 UI 库）：读取模块 UI 状态里的 pointer（由 MapView 的 mousemove 节流回写）。
 // 是否显示由 controls.coords 控制——默认不显示，调 mapCommands.showControls(['coords']) 才出现。
 import React from 'react'
 import { useMapUiStore } from '../core/store'
+import { anchorStyle } from '../core/controls'
 
 /** 十进制经纬度 → 度分秒（便于指挥场景读数） */
 function dms(v: number, isLat: boolean): string {
@@ -22,6 +23,8 @@ export const CoordReadout: React.FC<{ dmsFormat?: boolean; style?: React.CSSProp
 }) => {
   const visible = useMapUiStore((s) => s.controls.coords)
   const pointer = useMapUiStore((s) => s.pointer)
+  // 落位：宿主可用 `configureControls([{key:'coords', anchor, offset}])` 覆盖；缺省左下角
+  const layout = useMapUiStore((s) => s.controlLayout.coords)
   if (!visible) return null
 
   const text = pointer
@@ -33,10 +36,11 @@ export const CoordReadout: React.FC<{ dmsFormat?: boolean; style?: React.CSSProp
   return (
     <div
       data-map2d-coords="true"
+      data-map2d-anchor={layout?.anchor ?? 'bottom-left'}
       style={{
-        // 左下角专属：比例尺已移到右下角（见 core/controls.ts 的 POSITION）。
-        // 早期两者都在左下角，会**完全重叠**——以后调整定位请一并核对这两处。
-        position: 'absolute', left: 12, bottom: 12, zIndex: 9,
+        // 缺省左下角；宿主可用 controlLayout 改锚点与偏移（2026-09-18 新增）。
+        // ★ 注意：比例尺在右下角（见 core/controls.ts 的 POSITION）—— 两者都放过左下角会**完全重叠**。
+        position: 'absolute', ...anchorStyle(layout?.anchor, layout?.offset), zIndex: 9,
         padding: '6px 10px', fontSize: 12, fontFamily: 'Consolas, monospace',
         background: 'rgba(8,16,30,.72)', border: '1px solid var(--panel-border, #1d3a5c)',
         borderRadius: 6, color: 'var(--text-1, #cfe3f5)', backdropFilter: 'blur(6px)',

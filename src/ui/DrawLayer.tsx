@@ -12,19 +12,19 @@ import { mapInstance, layersReady } from '../core/instance'
 import { MapDraw, type PrimitiveKind } from '../primitives/api'
 import {
   bearingDeg, distanceMeters, fmtArea, fmtDistance, insertVertex, isEditableShape,
-  pathLengthMeters, polygonAreaM2, pointToSegmentMeters, removeVertex, snapTo, verticesOf, withVertices,
+  pathLengthMeters, polygonAreaM2, pointToSegmentMeters, nearestWithin, removeVertex, verticesOf, withVertices,
   type LngLat,
 } from '../core/geometry'
 import { DEFAULT_KIND, isDrawing, useInteraction, type DrawKind } from '../core/interaction'
+import { draw } from '../primitives/draw-api'
 
 const PREVIEW_SRC = 'src-2d-interaction'
 const LYR_PREVIEW_LINE = 'lyr-2d-preview-line'
 const LYR_PREVIEW_FILL = 'lyr-2d-preview-fill'
 const LYR_PREVIEW_VERTEX = 'lyr-2d-preview-vertex'
-const LYR_PREVIEW_SNAP = 'lyr-2d-preview-snap'
 
-/** 吸附判定阈值（屏幕像素） */
-const SNAP_PX = 10
+// 顶点手柄的命中半径（原 `SNAP_PX` —— 吸附删掉后只剩"按下的是哪个手柄"这一个用途，名字改准）
+const HANDLE_PX = 10
 /** 顶点手柄半径（像素） */
 const HANDLE_R = 5
 
@@ -40,26 +40,30 @@ const poly = (pts: LngLat[], props: Record<string, unknown> = {}): GeoJSON.Featu
   geometry: { type: 'Polygon', coordinates: [[...pts, pts[0]]] },
 })
 
-/** 按当前缩放把屏幕像素阈值换算成米（用于吸附判定） */
+/** 按当前缩放把屏幕像素阈值换算成米（用于顶点手柄的命中判定） */
 function pxToMeters(map: MlMap, px: number): number {
   const lat = map.getCenter().lat
   const mpp = (156543.03392 * Math.cos((lat * Math.PI) / 180)) / Math.pow(2, map.getZoom())
   return mpp * px
 }
 
-/** 收集"可吸附的候选点"：所有已有图元的顶点 */
-function snapCandidates(exclude?: { kind: PrimitiveKind; id: string }): { point: LngLat; label?: string }[] {
-  const kinds: PrimitiveKind[] = ['area', 'drone', 'target', 'link', 'track', 'scan', 'cluster', 'label', 'route', 'shape']
-  const out: { point: LngLat; label?: string }[] = []
-  for (const k of kinds) {
-    for (const item of MapDraw.list(k) as unknown as Record<string, unknown>[]) {
-      if (exclude && exclude.kind === k && exclude.id === item.id) continue
-      for (const v of verticesOf(k, item)) {
-        if (Number.isFinite(v[0]) && Number.isFinite(v[1])) out.push({ point: v, label: `${k}:${String(item.id)}` })
-      }
-    }
+// ★ 2026-09-18：这里原先还有一个 `snapCandidates()` —— 收集全图所有图元的顶点当"吸附候选"。
+//   用户说吸附没必要，**整条链路已删**（候选收集 / 吸附判定 / 吸附标记 / 「吸附到 …」提示）。
+//   现在光标落哪儿就是哪儿。
+
+/**
+ * 圆/椭圆的**预览环**（48 边形近似）。
+ * 预览只要"看着是个圈"，用不着真圆 —— 正式绘制由 `draw.circle` 交给 `shape` 图元渲染。
+ */
+function circlePreview(center: LngLat, radiusKm: number, ellipse: boolean): GeoJSON.Feature {
+  const dLat = (radiusKm * 1000 / 6371008.8) * (180 / Math.PI)
+  const dLng = dLat / Math.max(1e-6, Math.cos((center[1] * Math.PI) / 180))
+  const ring: [number, number][] = []
+  for (let i = 0; i <= 48; i++) {
+    const a = (i / 48) * Math.PI * 2
+    ring.push([center[0] + Math.cos(a) * dLng, center[1] + Math.sin(a) * dLat * (ellipse ? 0.5 : 1)])
   }
-  return out
+  return poly(ring, { role: 'preview-area' })
 }
 
 export const DrawLayer: React.FC = () => {
@@ -123,16 +127,7 @@ function setup(map: MlMap): () => void {
         },
       })
     }
-    if (!map.getLayer(LYR_PREVIEW_SNAP)) {
-      map.addLayer({
-        id: LYR_PREVIEW_SNAP, type: 'circle', source: PREVIEW_SRC,
-        filter: ['==', ['get', 'role'], 'snap'],
-        paint: {
-          'circle-radius': 8, 'circle-color': 'rgba(0,0,0,0)',
-          'circle-stroke-color': '#f59e0b', 'circle-stroke-width': 2,
-        },
-      })
-    }
+    // ★ 2026-09-18：吸附预览图层（`lyr-2d-preview-snap`）已整条删除 —— 用户："吸附没必要"。
 
     const setPreview = (features: GeoJSON.Feature[]) => {
       const src = map.getSource(PREVIEW_SRC) as maplibregl.GeoJSONSource | undefined
@@ -173,7 +168,6 @@ function setup(map: MlMap): () => void {
         vs.forEach((v, i) => feats.push(pt(v, { role: 'vertex', active: ed.dragging === i })))
       }
 
-      if (st.snapHint) feats.push(pt(st.snapHint.point, { role: 'snap' }))
       setPreview(feats)
     }
 
@@ -191,6 +185,33 @@ function setup(map: MlMap): () => void {
           meters: pathLengthMeters([...pts, pts[0]]),
         })
       }
+    }
+
+    /**
+     * **几何原语的"多点类"收笔**（折线 / 闭合线 / 真面）—— 双击或 Enter 触发。
+     * 少点就按每种的最小点数拦住并给提示（**不静默丢**）。
+     */
+    const finishGeo = () => {
+      const st = useInteraction.getState()
+      const g = st.geo
+      if (!g) return
+      const pts = st.points.map((p) => [p[0], p[1]] as [number, number])
+      const common = { color: g.color, widthPx: g.widthPx, dashed: g.dashed, text: g.text, textStyle: g.textStyle }
+      let id: string | null = null
+      if (g.key === 'line') {
+        if (pts.length < 2) { st.setHint('线至少需要 2 个点'); return }
+        id = draw.line({ points: pts, ...common })
+      } else if (g.key === 'closedLine') {
+        if (pts.length < 3) { st.setHint('闭合线至少需要 3 个点'); return }
+        id = draw.closedLine({ points: pts, ...common })
+      } else if (g.key === 'polygon') {
+        if (pts.length < 3) { st.setHint('面至少需要 3 个点'); return }
+        id = draw.polygon({ ring: pts, fillColor: g.fillColor, fillOpacity: g.fillOpacity, strokeWidthPx: g.widthPx, dashed: g.dashed, text: g.text, textStyle: g.textStyle })
+      }
+      if (id) g.onDone?.(id)
+      st.setGeometry(null)
+      setPreview([])
+      refresh()
     }
 
     /** 完成绘制 → 写入 MapDraw（半成品不进集合） */
@@ -232,8 +253,69 @@ function setup(map: MlMap): () => void {
     // ---- 交互事件 ----
     const onClick = (e: MapMouseEvent) => {
       const st = useInteraction.getState()
+      const p = [e.lngLat.lng, e.lngLat.lat] as LngLat   // 落点就是光标位置（吸附已删）
+
+      // ★ 2026-09-18：**几何原语绘制**（点/线/闭合线/真面/圆/椭圆）—— 落点语义由模块自己处理，
+      //   宿主只用 `mapCommands.setGeometry(key)` 起一次，不再自己写"两下点出半径"的状态机。
+      if (st.geo) {
+        const key = st.geo.key
+        const two = key === 'circle' || key === 'ellipse'
+        /** 收口：交回宿主 / 按几何原语造 / 什么都不造，三处共用一个出口 */
+        const done = (id: string | null) => {
+          if (id) st.geo?.onDone?.(id)
+          st.setGeometry(null)
+          refresh()
+        }
+        // ★ 宿主自定义建法（`make` 钩子）：交互照旧在模块，造什么由宿主决定。
+        //   典型用途是业务层的"目标点 / 军标 / 距离环"这类**不是几何原语**的图元。
+        const mk = st.geo.make
+        if (mk) {
+          if (two) {
+            if (st.points.length === 0) { st.addPoint(p); refresh(); return }
+            const c = st.points[0]
+            const rKm = Math.max(0.05, distanceMeters(c, p) / 1000)
+            done(mk([{ lng: c[0], lat: c[1] }, { lng: p[0], lat: p[1] }], rKm))
+            return
+          }
+          // 点类：一下就成（多点类在下面继续攒点，等双击/Enter）
+          if (key !== 'point') {
+            st.addPoint(p)
+            refresh()
+            return
+          }
+          done(mk([{ lng: p[0], lat: p[1] }], 0))
+          return
+        }
+        if (key === 'point') {
+          const id = draw.point({ lng: p[0], lat: p[1], sizePx: st.geo.sizePx, color: st.geo.color, text: st.geo.text, textStyle: st.geo.textStyle }) as string
+          done(id)
+          return
+        }
+        if (two) {
+          // 两下：第一下定中心，第二下决定半径（离屏预览在第 1 点与光标之间）
+          const pts = st.points
+          if (pts.length === 0) { st.addPoint(p); refresh(); return }
+          const center = pts[0]
+          const radiusKm = Math.max(0.05, distanceMeters(center, p) / 1000)
+          const spec = {
+            lng: center[0], lat: center[1], radiusKm,
+            color: st.geo.color, fillColor: st.geo.fillColor, fillOpacity: st.geo.fillOpacity,
+            strokeWidthPx: st.geo.widthPx, dashed: st.geo.dashed,
+            text: st.geo.text, textStyle: st.geo.textStyle,
+          }
+          const id = key === 'circle'
+            ? draw.circle(spec) as string
+            : draw.ellipse({ ...spec, radiusKmMinor: radiusKm / 2 }) as string
+          done(id)
+          return
+        }
+        // 多点类：折线 / 闭合线 / 真面（双击或 Enter 结束）
+        st.addPoint(p)
+        refresh()
+        return
+      }
+
       if (!isDrawing(st.mode)) return
-      const p = st.snapHint ? st.snapHint.point : ([e.lngLat.lng, e.lngLat.lat] as LngLat)
       st.addPoint(p)
       if (st.mode === 'point') { finishDraw(); return }
       refresh()
@@ -243,14 +325,35 @@ function setup(map: MlMap): () => void {
       const st = useInteraction.getState()
       const cursor = [e.lngLat.lng, e.lngLat.lat] as LngLat
 
-      // 绘制中的吸附 + 预览跟随光标
+      // 几何原语的多点预览（折线 / 闭合线 / 真面）：与老 mode 用同一套预览图层
+      if (st.geo && (st.geo.key === 'line' || st.geo.key === 'closedLine' || st.geo.key === 'polygon')) {
+        const pts = st.points
+        if (pts.length) {
+          const preview = [...pts, cursor]
+          const closed = st.geo.key !== 'line'
+          setPreview([
+            ...(closed && preview.length >= 3 ? [poly(preview, { role: 'preview-area' })] : []),
+            line(closed ? [...preview, preview[0]] : preview, { role: closed ? 'preview-area' : 'preview-line' }),
+            ...pts.map((p, i) => pt(p, { role: 'vertex', active: i === pts.length - 1 })),
+          ])
+        } else refresh()
+        return
+      }
+      // 几何原语的"两下类"（圆 / 椭圆）：第一点已落，画一个橡皮圈预览
+      if (st.geo && (st.geo.key === 'circle' || st.geo.key === 'ellipse') && st.points.length) {
+        const c = st.points[0]
+        const rKm = Math.max(0.05, distanceMeters(c, cursor) / 1000)
+        setPreview([
+          circlePreview(c, rKm, st.geo.key === 'ellipse'),
+          pt(c, { role: 'vertex', active: true }),
+        ])
+        return
+      }
+
+      // 绘制中的预览跟随光标
+      // ★ 2026-09-18（用户："点上面有吸附功能？没必要，可以删除该功能"）：**吸附整条链路已删** ——
+      //   光标落哪儿就是哪儿，不再吸到已有点、不再画吸附标记、不再弹「吸附到 …」。
       if (isDrawing(st.mode)) {
-        let hint: { point: LngLat; label?: string } | null = null
-        if (st.snapEnabled) {
-          const s = snapTo(cursor, snapCandidates(), pxToMeters(map, SNAP_PX))
-          hint = s ? { point: s.point, label: s.label } : null
-        }
-        st.setSnapHint(hint)
         const pts = st.points
         if (pts.length) {
           const preview = [...pts, cursor]
@@ -259,13 +362,11 @@ function setup(map: MlMap): () => void {
               ...(preview.length >= 3 ? [poly(preview, { role: 'preview-area' })] : []),
               line([...preview, preview[0]], { role: 'preview-area' }),
               ...pts.map((p, i) => pt(p, { role: 'vertex', active: i === pts.length - 1 })),
-              ...(hint ? [pt(hint.point, { role: 'snap' })] : []),
             ])
           } else {
             setPreview([
               line(preview, { role: 'preview-line' }),
               ...pts.map((p, i) => pt(p, { role: 'vertex', active: i === pts.length - 1 })),
-              ...(hint ? [pt(hint.point, { role: 'snap' })] : []),
             ])
           }
         } else refresh()
@@ -295,7 +396,7 @@ function setup(map: MlMap): () => void {
       const st = useInteraction.getState()
       if (!st.edit) return
       const vs = editVertices()
-      const best = snapTo([e.lngLat.lng, e.lngLat.lat], vs.map((p) => ({ point: p })), pxToMeters(map, SNAP_PX))
+      const best = nearestWithin([e.lngLat.lng, e.lngLat.lat], vs.map((p) => ({ point: p })), pxToMeters(map, HANDLE_PX))
       if (best) {
         st.setDragging(vs.findIndex((p) => p[0] === best.point[0] && p[1] === best.point[1]))
         map.getCanvas().style.cursor = 'grabbing'
@@ -310,6 +411,15 @@ function setup(map: MlMap): () => void {
 
     const onDblClick = (e: MapMouseEvent) => {
       const st = useInteraction.getState()
+      // 几何原语的"多点类"：双击结束（折线 / 闭合线 / 真面）
+      if (st.geo) {
+        const key = st.geo.key
+        if (key === 'line' || key === 'closedLine' || key === 'polygon') {
+          e.preventDefault()
+          finishGeo()
+        }
+        return
+      }
       if (!isDrawing(st.mode) || st.mode === 'point') return
       e.preventDefault()
       finishDraw()
@@ -323,6 +433,7 @@ function setup(map: MlMap): () => void {
         map.getCanvas().style.cursor = ''
         return
       }
+      if (e.key === 'Enter' && st.geo && (st.geo.key === 'line' || st.geo.key === 'closedLine' || st.geo.key === 'polygon')) finishGeo()
       if (e.key === 'Enter' && isDrawing(st.mode)) finishDraw()
       if ((e.key === 'Backspace' || e.key === 'Delete') && st.points.length) {
         st.setPoints(st.points.slice(0, -1))
@@ -349,6 +460,13 @@ function setup(map: MlMap): () => void {
 
     // 有模式/编辑目标变化时同步光标与提示
     const unsub = useInteraction.subscribe((st) => {
+      // 几何原语绘制时也用十字光标 + 禁拖拽平移（与老 mode 同款）
+      if (st.geo) {
+        map.getCanvas().style.cursor = 'crosshair'
+        map.dragPan.disable()
+        if (!st.points.length) refresh()
+        return
+      }
       if (isDrawing(st.mode)) {
         map.getCanvas().style.cursor = 'crosshair'
         map.dragPan.disable()          // 绘制时左键用于落点，禁用拖拽平移
@@ -382,7 +500,6 @@ const InteractionOverlay: React.FC = () => {
   const measurement = useInteraction((s) => s.measurement)
   const edit = useInteraction((s) => s.edit)
   const hint = useInteraction((s) => s.hint)
-  const snapHint = useInteraction((s) => s.snapHint)
 
   if (mode === 'none' && !measurement && !edit && !hint) return null
 
@@ -422,7 +539,6 @@ const InteractionOverlay: React.FC = () => {
           {points.length > 0 && <span>：已落 {points.length} 点</span>}
           {live && <span style={{ color: '#22d3ee' }}>　{live}</span>}
           <div style={{ color: '#8fb0cc', fontSize: 11 }}>{steps.join('　·　')}</div>
-          {snapHint && <div style={{ color: '#f59e0b', fontSize: 11 }}>吸附到 {snapHint.label ?? '已有点'}</div>}
         </div>
       )}
       {!isDrawing(mode) && measurement && (

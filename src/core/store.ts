@@ -2,6 +2,7 @@
 import { create } from 'zustand'
 import { ALL_LAYER_GROUPS, LayerManager, type LayerGroup } from '../render/LayerManager'
 import { MAP_OPTIONS, type MapControlKey } from './options'
+import type { ControlAnchor } from './controls'
 import type { MapToolKey, MapViewport } from './types'
 
 export interface MapUiState {
@@ -23,6 +24,13 @@ export interface MapUiState {
   grid: 'none' | 'graticule' | 'utm'
   /** 地图控件显示状态（需求 M2-CTRL-01：初值取 MAP_OPTIONS.controls，通常全不显示） */
   controls: Record<MapControlKey, boolean>
+  /**
+   * 每个控件的**落位**（2026-09-18 新增）：`{ anchor, offset }`。
+   *
+   * 缺省空表 = 各控件用自己内置的角（见 `core/controls.ts` 的 POSITION 与各 UI 组件）。
+   * 宿主用 `mapCommands.configureControls([...])` 覆盖 —— 需求方要求"可配置显隐与位置"。
+   */
+  controlLayout: Partial<Record<MapControlKey, { anchor?: ControlAnchor; offset?: [number, number] }>>
   /** 鼠标所在经纬度（coords 控件显示用；未开启也在后台更新，宿主可读） */
   pointer: { lng: number; lat: number } | null
 
@@ -37,6 +45,7 @@ export interface MapUiState {
   setTheme(t: 'day' | 'night' | 'contrast'): void
   setGrid(g: 'none' | 'graticule' | 'utm'): void
   setControls(v: Partial<Record<MapControlKey, boolean>>): void
+  setControlLayout(v: MapUiState['controlLayout']): void
   setPointer(p: { lng: number; lat: number } | null): void
 }
 
@@ -50,6 +59,7 @@ export const useMapUiStore = create<MapUiState>((set, get) => ({
   theme: 'night',
   grid: 'none',
   controls: { ...MAP_OPTIONS.controls },
+  controlLayout: {},
   pointer: null,
 
   toggleClearMode() {
@@ -88,6 +98,9 @@ export const useMapUiStore = create<MapUiState>((set, get) => ({
   },
   setControls(v) {
     set({ controls: { ...get().controls, ...v } })
+  },
+  setControlLayout(v) {
+    set({ controlLayout: { ...v } })
   },
   setPointer(p) {
     set({ pointer: p })

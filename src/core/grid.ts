@@ -7,6 +7,7 @@
 // 换算公式取自标准横轴墨卡托（Transverse Mercator）投影，中央经线比例因子 0.9996，
 // 精度对本模块的态势显示足够（厘米级以上误差与本用途无关）。
 import { mapInstance } from './instance'
+import { MAP_OPTIONS } from './options'
 import { useMapUiStore } from './store'
 import type { LngLat } from './geometry'
 
@@ -131,6 +132,8 @@ function ensureGridLayers(map: maplibregl.Map) {
     filter: ['==', ['get', 'role'], 'label'],
     layout: {
       'text-field': ['get', 'text'],
+      // 字体栈必须显式给（缺省栈在本工程是 404，见 MAP_OPTIONS.textFont）
+      'text-font': MAP_OPTIONS.textFont,
       'text-size': 10.5,
       'text-allow-overlap': false,
       'text-ignore-placement': false,

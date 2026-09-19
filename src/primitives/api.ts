@@ -43,9 +43,16 @@ export interface AreaItem {
   polygon: [number, number][]
   color?: string
   label?: string
+  /**
+   * 名称文字的**文本框样式**（'tag' 角标 / 'card' 卡片 / 'callout' 引线；不给按角标）。
+   * 由 `textLayerOf` 的 data-driven 表达式读，用于同一图层里区分三种样式。
+   */
+  textStyle?: string
   /** 是否为虚线边界（默认 true） */
   dashed?: boolean
   opacity?: number
+  /** 边界线宽（px）；不给用图层缺省 1.4。几何原语 `draw.polygon({ strokeWidthPx })` 用 */
+  weight?: number
 }
 
 export interface DroneItem {
@@ -183,8 +190,19 @@ export interface RouteItem {
   color?: string
   /** 是否虚线（计划航线通常用虚线，默认 false） */
   dashed?: boolean
-  /** 名称（不渲染文字，仅数据字段；需要文字请另用 label 图元） */
+  /** 名称（不渲染文字，仅数据字段；需要文字请另用 label 图元 */
   name?: string
+  /**
+   * 航线名称文字（★ 2026-09-18 新增，**会渲染**）。
+   * 由 `lyr-route-label` 原生画在地图上（取代原先的 HTML 浮层）；
+   * `draw.line({ text })` 与 `bindTextTo('route', …)` 都写这个字段。
+   * （与只作数据字段的 `name` 分开：`name` 不渲染，避免没给文字的航线把 id 画出来。）
+   */
+  label?: string
+  /** 名称文字的文本框样式（'tag' / 'card' / 'callout'），同 `AreaItem.textStyle` */
+  textStyle?: string
+  /** 线宽（px）；不给用图层缺省 1.6。几何原语 `draw.line({ widthPx })` 用 */
+  widthPx?: number
 }
 
 /**
@@ -221,6 +239,8 @@ export interface ShapeItem {
   /** 是否虚线（不给则按 kind 推导：search 为虚线） */
   dashed?: boolean
   label?: string
+  /** 名称文字的文本框样式（'tag' / 'card' / 'callout'），同 `AreaItem.textStyle` */
+  textStyle?: string
 }
 
 export interface DrawSnapshot {
@@ -427,7 +447,8 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
   switch (kind) {
     case 'area':
       LayerManager.setAreaFeatures(fc((items as AreaItem[]).map((a) =>
-        polygon(a.polygon, { id: a.id, color: a.color ?? C.area, label: a.label ?? '', opacity: a.opacity ?? 0.1 }))))
+        // `label` / `textStyle` 进要素属性 → `lyr-area-label` 用原生 symbol 画名称文字
+        polygon(a.polygon, { id: a.id, color: a.color ?? C.area, label: a.label ?? '', textStyle: a.textStyle, opacity: a.opacity ?? 0.1, dashed: a.dashed === true, weight: a.weight }))))
       break
     case 'drone': {
       // 位图图标 + 缺省画点（本批新增，**纯可选**）：
@@ -494,7 +515,9 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
       break
     case 'route':
       LayerManager.setRouteFeatures(fc((items as RouteItem[]).map((r) =>
-        line(r.points, { id: r.id, color: r.color ?? C.route, dashed: r.dashed ?? false, name: r.name ?? r.id }))))
+        // `widthPx` 进要素属性 → 图层按它画线宽（几何原语 `draw.line({widthPx})` 依赖这条）
+        // `label` 进要素属性 → `lyr-route-label` 原生画航线名称（没有就不画，用 ?? '' 兜住）
+        line(r.points, { id: r.id, color: r.color ?? C.route, dashed: r.dashed ?? false, name: r.name ?? r.id, label: r.label ?? '', textStyle: r.textStyle, widthPx: r.widthPx }))))
       break
     case 'symbol':
       renderSymbols(mapInstance.current as never, features.map((f) => ({
@@ -518,6 +541,7 @@ function renderItems(kind: PrimitiveKind, items: AnyItem[]) {
           weight: s.weight ?? (s.kind === 'plain' ? 1.4 : 1.8),
           dashed: s.dashed ?? (s.kind === 'search'),
           label: s.label ?? '',
+          textStyle: s.textStyle,
         })
       })))
       break
@@ -701,6 +725,35 @@ function flushDirty(): PrimitiveKind[] {
   return kinds
 }
 
+// ---------------------------------------------------------------- 图元变更事件（2026-09-18 新增）
+//
+// 用户第 4 条要"图元全都能显隐、可以做到显隐管理"。宿主做管理面板必须有"画面上变了什么"的通知，
+// 否则只能定时轮询（mission-app 的「图元显隐」面板原来就是每 1.2 秒把全表重读一遍）。
+//
+// 与 `on('click'|'hover')` 的区别：那两个是**地图要素上的鼠标事件**，这一条是**图元数据的变更**。
+// 语义互补，所以挂在同一个 `MapDraw.on()` 上，用名字区分。
+
+/** 一次图元变更 */
+export interface PrimitiveChange {
+  /** 动作：新增 / 整组替换 / 删除 / 清空 / 显隐变化 */
+  action: 'add' | 'set' | 'remove' | 'clear' | 'visible'
+  kind: PrimitiveKind
+  /** 图元 id；批量动作（`set` / `clear`）给 `*` */
+  id: string
+  /** 仅 `visible` 有：变更后的可见性 */
+  visible?: boolean
+}
+
+type ChangeHandler = (e: PrimitiveChange) => void
+const changeHandlers = new Set<ChangeHandler>()
+
+function emitChange(e: PrimitiveChange) {
+  for (const fn of [...changeHandlers]) {
+    // 单个监听器抛异常**不能**影响其它监听器，更不能影响绘制本身
+    try { fn(e) } catch { /* 吞掉，绘制优先 */ }
+  }
+}
+
 // ---------------------------------------------------------------- 公开 API
 export const MapDraw = {
   /** 整组替换某类图元；非法项跳过并上报（M2-NFR-10），合法项照常渲染 */
@@ -710,6 +763,7 @@ export const MapDraw = {
     ;(valid as AnyItem[]).forEach((it) => bags[kind].set(it.id, it))
     ensureZoomHook()
     markDirty(kind)
+    emitChange({ action: 'set', kind, id: '*' })
   },
 
   /** 新增或更新单个图元；数据非法时跳过并上报，返回是否被接受 */
@@ -717,27 +771,54 @@ export const MapDraw = {
     const { valid } = filterValid(kind, [item as { id?: unknown }])
     if (!valid.length) return false
     const it = valid[0] as AnyItem
+    const existed = bags[kind].has(it.id)
     bags[kind].set(it.id, it)
     ensureZoomHook()
     markDirty(kind)
+    // `add` 是"有则更新、无则新增"，事件里如实区分：没见过的发 `add`，已存在的发 `visible`
+    //（面板据此判断要不要插一行 —— 每次遥测更新都发 `add` 会让面板疯狂重渲染）
+    emitChange(existed
+      ? { action: 'visible', kind, id: String(it.id), visible: (it as { visible?: boolean }).visible }
+      : { action: 'add', kind, id: String(it.id) })
     return true
   },
 
   /** 删除单个图元 */
   remove(kind: PrimitiveKind, id: string) {
-    if (bags[kind].delete(id)) markDirty(kind)
+    if (bags[kind].delete(id)) {
+      markDirty(kind)
+      emitChange({ action: 'remove', kind, id })
+    }
+  },
+
+  /**
+   * **改一个已存在图元的若干字段**（★ 2026-09-18 新增，模块内部用）。
+   *
+   * `add` 是"整条替换"（`bags.set(id, item)`），所以要改一个字段必须先把原条目取回来合并。
+   * 目前只有一处用到：文字绑定改字/改样式（`draw-api` 的 `setBoundText` / `setBoundStyle`）——
+   * 文字现在由**原生 symbol 图层**画，因此改字必须落到图元字段上，否则画面不动。
+   *
+   * @returns 图元不存在返回 false（不新建）
+   */
+  patch(kind: PrimitiveKind, id: string, fields: Record<string, unknown>): boolean {
+    const cur = bags[kind].get(id) as Record<string, unknown> | undefined
+    if (!cur) return false
+    return this.add(kind, { ...cur, ...fields } as never)
   },
 
   /** 清空某类（不传 kind 则清空全部图元并清掉地图上所有动态图层） */
   clear(kind?: PrimitiveKind) {
     if (!kind) {
-      ;(Object.keys(bags) as PrimitiveKind[]).forEach((k) => bags[k].clear())
+      ;(Object.keys(bags) as PrimitiveKind[]).forEach((k) => {
+        if (bags[k].size) { bags[k].clear(); emitChange({ action: 'clear', kind: k, id: '*' }) }
+      })
       dirty.clear()
       LayerManager.clearAll()
       return
     }
     bags[kind].clear()
     markDirty(kind)
+    emitChange({ action: 'clear', kind, id: '*' })
   },
 
   /**
@@ -761,8 +842,31 @@ export const MapDraw = {
    * 订阅图元交互事件。等价于 `onPrimitiveEvent`，放在这里是为了"绘制 API 上就能订阅"的心智一致。
    * `click` 只在点到图元时触发；`hover` 同一图元不重复触发。
    */
-  on(name: 'click' | 'hover', fn: (e: PrimitiveEvent) => void): () => void {
-    return onPrimitiveEvent(name, fn)
+  /**
+   * 订阅事件。
+   *
+   * · `'click' | 'hover'` —— **地图要素上的鼠标事件**，回调收 `PrimitiveEvent`
+   * · `'change'` —— **图元数据变更**（增/删/改/显隐），回调收 `PrimitiveChange`
+   *
+   * 两者语义互补，所以挂在同一个 `on()` 上。用条件类型给回调**按名字自动收窄**，
+   * 这样调用处写 `on('change', (e) => e.action)` 时 `e` 就是 `PrimitiveChange`。
+   *
+   * @returns 取消订阅的函数（组件卸载时记得调）
+   * @example
+   * const off = MapDraw.on('change', (e) => {
+   *   if (e.action === 'add' || e.action === 'remove') refresh()
+   * })
+   */
+  on<N extends 'click' | 'hover' | 'change'>(
+    name: N,
+    fn: N extends 'change' ? (e: PrimitiveChange) => void : (e: PrimitiveEvent) => void,
+  ): () => void {
+    if (name === 'change') {
+      const h = fn as ChangeHandler
+      changeHandlers.add(h)
+      return () => { changeHandlers.delete(h) }
+    }
+    return onPrimitiveEvent(name as 'click' | 'hover', fn as (e: PrimitiveEvent) => void)
   },
 
   // -------------------------------------------------------------- 样式配置（本批新增，可选能力）
@@ -829,6 +933,7 @@ export const MapDraw = {
     if (!item) return false
     item.visible = visible
     markDirty(kind)
+    emitChange({ action: 'visible', kind, id, visible })
     return true
   },
 
@@ -838,6 +943,7 @@ export const MapDraw = {
     for (const k of kinds) {
       bags[k].forEach((it) => { (it as { visible?: boolean }).visible = false })
       markDirty(k)
+      emitChange({ action: 'visible', kind: k, id: '*', visible: false })
     }
   },
 
@@ -847,6 +953,7 @@ export const MapDraw = {
     for (const k of kinds) {
       bags[k].forEach((it) => { (it as { visible?: boolean }).visible = true })
       markDirty(k)
+      emitChange({ action: 'visible', kind: k, id: '*', visible: true })
     }
   },
 

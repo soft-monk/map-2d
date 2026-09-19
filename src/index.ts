@@ -1,4 +1,4 @@
-// map-2d · 唯一公开入口
+﻿// map-2d · 唯一公开入口
 //
 // 宿主只允许从此处导入；src/ 下的其它文件都属于实现细节。
 //
@@ -87,7 +87,7 @@ export { useInteraction, isDrawing, DEFAULT_KIND } from './core/interaction'
 export type { DrawMode, DrawKind, Measurement, EditTarget } from './core/interaction'
 export {
   distanceMeters, pathLengthMeters, polygonAreaM2, bearingDeg, pointToSegmentMeters,
-  fmtDistance, fmtArea, verticesOf, withVertices, isEditableShape, insertVertex, removeVertex, snapTo,
+  fmtDistance, fmtArea, verticesOf, withVertices, isEditableShape, insertVertex, removeVertex, nearestWithin,
 } from './core/geometry'
 export type { LngLat } from './core/geometry'
 // 视图状态序列化与图片导出（M2-API-08 / M2-API-09）
@@ -108,7 +108,8 @@ export { mapInstance } from './core/instance'
 export { mapCommands } from './core/commands'
 
 // 控件按需显示（M2-CTRL-01 ~ 05）：默认全不显示，按需开启
-export { setControl, showControls, toggleControl, visibleControls, controlState, applyControls } from './core/controls'
+export { setControl, showControls, configureControls, toggleControl, visibleControls, controlState, applyControls, anchorStyle } from './core/controls'
+export type { ControlSpec, ControlAnchor } from './core/controls'
 
 // 瓦片精度上限（M2-BASE-05）：按地面分辨率设限，默认不限制，只作用于本地栅格底图
 export { tileMaxZoomFromOptions, applyTilePrecision, TILE_DATA_MAX_ZOOM } from './core/tilePrecision'
@@ -124,6 +125,7 @@ export {
   pickAt, primitiveHandlerCounts,
 } from './core/primitiveEvents'
 export type { PrimitiveEvent, PrimitiveEventName } from './core/primitiveEvents'
+export type { PrimitiveChange } from './primitives/api'
 
 // 运行指标与错误上报（M2-CTRL-15 / M2-NFR-10 / M2-NFR-11）
 export {
@@ -134,6 +136,15 @@ export type { RuntimeStats, PrimitiveError } from './core/diagnostics'
 
 // 绘制 API（图元驱动渲染：无人机/区域/目标/链路/轨迹/扫描/脉冲/标注…）
 export { MapDraw } from './primitives/api'
+// ★ 2026-09-18 新增：**几何原语绘制 API**（点/线/闭合线/真面/圆/椭圆），只有函数、不吃配置文件
+export { draw, textBindingsOf, listGeometry, setBoundText, bindTextTo, boundTextOf, setBoundStyle, boundStyleOf } from './primitives/draw-api'
+export type { DrawCommon, TextStyle, PointSpec, LineSpec, PolygonSpec, CircleSpec, EllipseSpec, TextBinding } from './primitives/draw-api'
+// ★ 2026-09-18 新增：**能画什么**的自描述清单（宿主菜单/表单由它生成，不再手抄）
+export { PRIMITIVE_CATALOG, TEXT_STYLES, catalogOf } from './primitives/catalog'
+export type { GeometryKey, GeometryRequest } from './core/interaction'
+export type { GeometryDef, ParamDef } from './primitives/catalog'
+// ★ 2026-09-18 新增：**绑定到图元的文本框**浮层（三种样式：角标 / 卡片 / 引线标注）
+export { TextOverlay } from './ui/TextOverlay'
 export type {
   PrimitiveKind, AreaItem, DroneItem, TargetItem, LinkItem, TrackItem,
   ScanItem, PulseItem, ClusterItem, LabelItem, DrawSnapshot,

@@ -1,4 +1,4 @@
-// 地图模块 · 指北针（MAP-01 / CAND-MAP-03 / M2-CTRL-02）
+﻿// 地图模块 · 指北针（MAP-01 / CAND-MAP-03 / M2-CTRL-02）
 //
 // 设计：自绘 SVG（不走 MapLibre 自带控件），因为：
 //   1) 二维模式锁定旋转（maxPitch=0、禁 rotate），自带罗盘会被禁用样式；
@@ -10,11 +10,14 @@
 import React, { useEffect, useState } from 'react'
 import { mapInstance } from '../core/instance'
 import { useMapUiStore } from '../core/store'
+import { anchorStyle } from '../core/controls'
 
 export const Compass: React.FC<{ size?: number; force?: boolean }> = ({ size = 44, force = false }) => {
   const [bearing, setBearing] = useState(0)
   const setViewport = useMapUiStore((s) => s.setViewport)
   const enabled = useMapUiStore((s) => s.controls.compass)
+  // 落位（宿主可配置；缺省右上角）
+  const layout = useMapUiStore((s) => s.controlLayout.compass)
 
   useEffect(() => {
     const map = mapInstance.current
@@ -37,8 +40,9 @@ export const Compass: React.FC<{ size?: number; force?: boolean }> = ({ size = 4
       title="指北针：N 始终指向正北；点击复位正北"
       onClick={() => mapInstance.current?.easeTo({ bearing: 0, duration: 300 })}
       style={{
-        // 落在缩放按钮（top-right，约 10–62px）正下方，留 16px 间距避免贴住
-        position: 'absolute', top: 78, right: 12, width: size, height: size, zIndex: 9,
+        // 缺省落在"缩放按钮正下方"（top-right，比例尺在右下角）；宿主可用 configureControls 改锚点与偏移
+        position: 'absolute', ...anchorStyle(layout?.anchor ?? 'top-right', layout?.offset),
+        width: size, height: size, zIndex: 9,
         borderRadius: '50%', cursor: 'pointer',
         background: 'rgba(8,16,30,.72)', border: '1px solid var(--panel-border, #1d3a5c)',
         backdropFilter: 'blur(6px)', display: 'grid', placeItems: 'center',

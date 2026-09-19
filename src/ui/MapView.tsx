@@ -8,6 +8,8 @@ import maplibregl, { Map as MlMap } from 'maplibre-gl'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { LayerManager } from '../render/LayerManager'
 import { MapDraw } from '../primitives/api'
+import { startTextLayer } from '../primitives/text-layer'
+import { bindSelection } from '../core/selection'
 import { mapInstance, layersReady } from '../core/instance'
 import { registerMapInstance, unregisterMapInstance, DEFAULT_INSTANCE_ID } from '../core/instanceRegistry'
 import { MAP_OPTIONS } from '../core/options'
@@ -49,6 +51,10 @@ export { tileMaxZoomFromOptions } from '../core/tilePrecision'
 function fallbackStyle(): maplibregl.StyleSpecification {
   return {
     version: 8,
+    // ★ 字形服务：没有它，任何 `symbol` 图层的文字都渲染不出来（见 core/options.ts）
+    glyphs: MAP_OPTIONS.glyphsUrl,
+    // ★ 图片图集：文本框的**底色块**（`icon-text-fit`）从这里取图，同上
+    sprite: MAP_OPTIONS.spriteUrl,
     sources: {},
     layers: [{ id: 'bg', type: 'background', paint: { 'background-color': VOID_BG } }],
   }
@@ -76,6 +82,10 @@ function rasterStyle(tileUrl: string, attribution: string): maplibregl.StyleSpec
   const limit = tileMaxZoomFromOptions()
   return {
     version: 8,
+    // ★ 字形服务：没有它，任何 `symbol` 图层的文字都渲染不出来（见 core/options.ts）
+    glyphs: MAP_OPTIONS.glyphsUrl,
+    // ★ 图片图集：文本框的**底色块**（`icon-text-fit`）从这里取图，同上
+    sprite: MAP_OPTIONS.spriteUrl,
     sources: {
       base: {
         type: 'raster',
@@ -206,6 +216,10 @@ export const MapView: React.FC<MapViewProps> = ({ data, children, instanceId = D
       // preserveDrawingBuffer：允许把画布内容导出为图片（截图/汇报取图）
       preserveDrawingBuffer: true,
       dragRotate: false,      // 仅二维：禁旋转（指北针因此恒指正北）
+      // ★ 2026-09-18：表意文字（汉字/假名/韩文）由本机字体在客户端实时生成 SDF。
+      //   这是"文字能画进地图"的前提 —— 不设它，symbol 图层里的中文会被 MapLibre 静默丢弃
+      //   （实测：渲染要素数 0、零字形请求、零报错，见 core/options.ts 的说明）。
+      localIdeographFontFamily: MAP_OPTIONS.localIdeographFontFamily,
       pitchWithRotate: false,
       touchPitch: false,
       maxPitch: 0,
@@ -221,6 +235,11 @@ export const MapView: React.FC<MapViewProps> = ({ data, children, instanceId = D
       LayerManager.applyVisibility()   // 恢复用户此前的图层开关
       layersReady.current = true       // 图层已建立：此后 MapDraw 的写入才会真正落到源上
       MapDraw.render()                 // 把"建图前就灌进来"的图元一次性补画
+      // ★ 统一文字与底块（文字位置由模块算：航路旁 / 图元整体右上角）——建完图层就要算一次，
+      //   否则"建图前就灌进来的图元"会没有文字（它不会触发 change 事件）。
+      startTextLayer()
+      // ★ 图元选中与删除（2026-09-18）：点图元即选中并高亮；按 Delete 时把"想删"报给宿主
+      bindSelection()
       reapplyTheme()                   // 主题热切换（M2-CTRL-13）：新样式上重新套用当前主题
       refreshGrid(map)                 // 军用网格/经纬网（M2-MAP-08）
       bindPrimitiveEvents(map)         // 图元点击/悬停回调（M2-DRAW-13）
@@ -318,6 +337,7 @@ export const MapView: React.FC<MapViewProps> = ({ data, children, instanceId = D
         LayerManager.applyVisibility()
       }
       MapDraw.render()
+      startTextLayer()                 // 样式重建后文字/底块也要重新算（源被清空了）
       // 样式重建会把主题相关的 paint 属性（底图亮度/叠加色/标签描边）重置为默认值，
       // 因此必须重新套用当前主题，否则"换底图后主题丢失"（M2-CTRL-13）。
       reapplyTheme()

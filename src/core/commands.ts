@@ -2,7 +2,8 @@
 import { mapInstance, layersReady } from './instance'
 import { LayerManager } from '../render/LayerManager'
 import { MAP_OPTIONS, zoomToMetersPerPixel, type MapControlKey } from './options'
-import { showControls, toggleControl, visibleControls, controlState } from './controls'
+import { showControls, configureControls, toggleControl, visibleControls, controlState, type ControlSpec } from './controls'
+import type { GeometryRequest } from './interaction'
 import { tileMaxZoomFromOptions, applyTilePrecision } from './tilePrecision'
 import { basemaps, type BasemapDef, type BasemapInfo } from './basemaps'
 import type { LayerGroup } from '../render/LayerManager'
@@ -13,6 +14,10 @@ import {
   verticesOf, withVertices, type LngLat,
 } from './geometry'
 import { MapDraw, type PrimitiveKind } from '../primitives/api'
+import {
+  clearSelection as clearSel, currentSelection, deleteSelection as deleteSel,
+  onDeleteRequest as onDelReq, onSelectionChange as onSelChange,
+} from './selection'
 import {
   exportViewState, restoreViewState, exportImage, downloadImage,
   type ViewState, type RestoreOptions, type ExportImageOptions,
@@ -116,6 +121,28 @@ export const mapCommands = {
     showControls(mapInstance.current, Array.isArray(keys) ? keys : [keys], on)
   },
 
+  /**
+   * **按配置设置控件**（2026-09-18 新增）：每个控件可给 `{ on, anchor, offset }`，
+   * 一次把**显隐与位置**都定下来。需求方原话："不只是 true/false，可以自己使用配置文件和
+   * 哪些之前写的配置文件一起，可配置显隐与位置" —— 宿主从自己的配置文件读出来直接传进来。
+   */
+  /**
+   * **开始一次几何原语绘制**（2026-09-18 新增）。
+   *
+   * 用户第 2 条要"绘制功能都是可调用的函数接口"，第 3 条要"图元能绑文本框"。
+   * 于是宿主只需要：`mapCommands.setGeometry({ key: 'circle', text: '威胁区' })`，
+   * 剩下的"第一下定圆心、第二下定半径、预览、收笔"**全在模块里**。
+   *
+   * @param req 传 `null` 取消当前绘制
+   */
+  setGeometry(req: GeometryRequest | null) {
+    useInteraction.getState().setGeometry(req)
+  },
+
+  configureControls(specs: ControlSpec[]) {
+    configureControls(mapInstance.current, specs)
+  },
+
   /** 切换单个控件的显示状态 */
   toggleControl(key: MapControlKey) {
     toggleControl(mapInstance.current, key)
@@ -190,6 +217,58 @@ export const mapCommands = {
   /** 设置某分组的整体透明度（0–1）；保留图元自身透明度语义 */
   setLayerGroupOpacity(group: LayerGroup, opacity: number) {
     LayerManager.setGroupOpacity(group, opacity)
+  },
+
+  /**
+   * **标签（文字与底块）显隐** —— ★ 2026-09-18 新增，需求方"图元显示隐藏功能，添加标签显示隐藏"。
+   *
+   * 文字是所有图元共用的一条统一图层（+ 两个底块图层），所以不能靠"按图元种类"开关，
+   * 这里直接开它的图层分组 `'text'`。
+   */
+  setLabelsVisible(visible: boolean) {
+    LayerManager.setGroupVisible('text', visible)
+  },
+
+  /** 当前标签是否可见（与 `setLabelsVisible` 同一份状态） */
+  labelsVisible(): boolean {
+    return LayerManager.isGroupVisible('text')
+  },
+
+  // ------------------------------------------------------------ 图元选中与删除（★ 2026-09-18）
+  //
+  // 交互：**点图元即选中**（模块内已绑好，`bindSelection()`），按 `Delete`/`Backspace` 时模块
+  // **只把"用户想删"报出来**（`onDeleteRequest`），**确认框由宿主实现** —— 宿主确认后再调
+  // `deleteSelection()`。这样"弹窗长什么样"由产品决定，模块不假设 UI。
+
+  /** 当前选中的图元（没选中返回 null） */
+  getSelection(): { kind: PrimitiveKind; id: string } | null {
+    return currentSelection()
+  },
+
+  /** 取消选中（相当于点空白处） */
+  clearSelection() {
+    clearSel()
+  },
+
+  /** 注册"用户按了 Delete"的回调（宿主在这里弹确认框）；传 null = 注销 */
+  onDeleteRequest(fn: ((sel: { kind: PrimitiveKind; id: string }) => void) | null) {
+    onDelReq(fn)
+  },
+
+  /**
+   * 订阅**选中态变化**（含"点地图空白处取消选中"）。宿主用它收起确认条一类的浮层。
+   * @returns 取消订阅的函数
+   */
+  onSelectionChange(fn: (sel: { kind: PrimitiveKind; id: string } | null) => void): () => void {
+    return onSelChange(fn)
+  },
+
+  /**
+   * **删除当前选中的图元**（宿主在用户确认后调用）。
+   * 几何原语走 `draw.remove`（顺带解绑文本），其余种类走 `MapDraw.remove`。
+   */
+  deleteSelection(): { kind: PrimitiveKind; id: string } | null {
+    return deleteSel()
   },
 
   /** 读取某分组的透明度（未设置过为 1） */
@@ -571,12 +650,6 @@ export const mapCommands = {
     if (next.length === vs.length) return { ok: false, reason: `至少保留 ${min} 个顶点` }
     MapDraw.add(ed.kind, withVertices(ed.kind, item, next) as never)
     return { ok: true, vertices: next.length }
-  },
-
-  /** 是否开启顶点吸附 */
-  setSnapEnabled(on: boolean) {
-    useInteraction.getState().setSnapEnabled(on)
-    return useInteraction.getState().snapEnabled
   },
 
   /** 读取最近一次量算结果（测距 / 测面），无结果为 null */

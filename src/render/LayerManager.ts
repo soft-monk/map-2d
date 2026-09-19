@@ -4,6 +4,7 @@
 // 增量原则：source.setData() 而非重建图层（TRD 性能设计要点）。
 // 分组显隐：setGroupVisible()，满足 MAP-04「多图层可独立开关」。
 import type { Map as MlMap } from 'maplibre-gl'
+import { MAP_OPTIONS } from '../core/options'
 import type { Group, LinkEdge, Phase, ScenarioKey, Target, TargetTrackPoint, UavPosEvent } from '../core/types'
 
 const SRC = {
@@ -21,11 +22,31 @@ const SRC = {
   shape: 'src-shape',
   annulus: 'src-annulus',
   symbol: 'src-symbol',
+  /**
+   * ★ 2026-09-18 新增：**统一文字源**（点要素）。
+   *
+   * 为什么不再用"各图元源自带的 symbol 图层"：那种做法下文字的锚点是 MapLibre 自己推的
+   * （面取几何内部点、线取中点），模块**插不上手**，而需求方要的是
+   * 「航路的标识放到航路旁边；其他图元放到**整个图元**的右上角（不是中心点的右上角）」——
+   * 锚点必须由模块自己算。于是统一成：模块把每条文字算成一个**点要素**放这个源里，
+   * 文字与底块都以这个点为准（见 `src/primitives/text-layer.ts`）。
+   */
+  text: 'src-text',
+  /** ★ 2026-09-18 新增：文字**底块**（方案 C —— 底块是模块自己画的面，不用 sprite） */
+  textBox: 'src-text-box',
+  /** ★ 2026-09-18 新增：**选中高亮**源（图元选中/删除用，见 core/selection.ts） */
+  selection: 'src-selection',
 }
 
 const LYR = {
   areaFill: 'lyr-area-fill',
   areaLine: 'lyr-area-line',
+  // ★ 2026-09-18 新增：区域面的**虚线**边界单独一层。
+  //   原来 `lyr-area-line` 把 `line-dasharray: [4,3]` 写死了 → **区域面永远画不出实线**
+  //   （用户："排查，区域是否能绘制实线" —— 改之前不能）。
+  //   MapLibre 的 `line-dasharray` 不支持数据表达式，所以照模块既有做法（route / shape / annulus）
+  //   拆成"实线层 + 虚线层"，用 `filter` 按要素属性 `dashed` 分流。
+  areaLineDashed: 'lyr-area-line-dashed',
   link: 'lyr-link',
   linkGlow: 'lyr-link-glow',
   group: 'lyr-group',
@@ -56,12 +77,48 @@ const LYR = {
   annulusDashed: 'lyr-annulus-dashed',
   symbol: 'lyr-symbol',
   symbolLabel: 'lyr-symbol-label',
+  /**
+   * ★ 2026-09-18 新增：**统一文字层**（配合 `SRC.text`）。
+   *   一条图层吃三种文本框样式 —— 字号 / 颜色 / 描边 / 偏移 / 锚点全部**逐要素数据驱动**。
+   */
+  /**
+   * ★ 2026-09-18 新增：**统一文字层**（配合 `SRC.text`）—— 一种文本框样式一条图层。
+   *   `text` 这条 id 保留给"默认那条"（tag），另两条按样式区分；见 `textLayers()` 的说明。
+   */
+  text: 'lyr-text',
+  textTag: 'lyr-text-tag',
+  textCard: 'lyr-text-card',
+  textCallout: 'lyr-text-callout',
+  /**
+   * ★ 2026-09-18 新增：文字**底块**（方案 C）。
+   *   需求方 2026-09-18 决定：底块不用 sprite + `icon-text-fit`（那条路下框按文字"行盒"算，
+   *   比字形大一圈、字还贴在框角上，观感差且调不动），改成**模块自己画的面**：
+   *   尺寸、圆角、透明度全是模块的数据，和文字**同一个锚点、同一套像素尺寸**，天然对齐。
+   */
+  textBoxFill: 'lyr-text-box-fill',
+  textBoxLine: 'lyr-text-box-line',
+  /**
+   * ★ 2026-09-18 新增：**选中高亮**（两层：线 + 点圆环）。
+   *   不进任何图层分组 —— 它跟着"选中态"走，不该被图层开关或一键全隐影响。
+   */
+  selLine: 'lyr-sel-line',
+  selCircle: 'lyr-sel-circle',
+  /** 已退役的旧文字层 id（保留常量是为了不破坏别处引用；`init` 里已不再创建它们） */
+  areaLabel: 'lyr-area-label',
+  routeLabel: 'lyr-route-label',
+  shapeLabel: 'lyr-shape-label',
 }
 
 const emptyFC = (): GeoJSON.FeatureCollection => ({ type: 'FeatureCollection', features: [] })
 
-/** 可独立开关的图层分组（对外公开，供图层开关面板使用） */
-export type LayerGroup = 'area' | 'pulse' | 'scan' | 'link' | 'group' | 'track' | 'trail' | 'target' | 'uav' | 'mark' | 'route' | 'annulus' | 'symbol'
+/**
+ * 可独立开关的图层分组（对外公开，供图层开关面板使用）。
+ *
+ * ★ 2026-09-18 新增 `'text'`（标签）：需求方"图元显示隐藏功能，**添加标签显示隐藏**"。
+ *   文字现在是一条统一图层 + 两个底块图层（见 `LYR.text` / `textBoxFill` / `textBoxLine`），
+ *   单独成组才能和图元一样被一键开关。
+ */
+export type LayerGroup = 'area' | 'pulse' | 'scan' | 'link' | 'group' | 'track' | 'trail' | 'target' | 'uav' | 'mark' | 'route' | 'annulus' | 'symbol' | 'text'
 
 export const LAYER_GROUP_LABELS: Record<LayerGroup, string> = {
   area: '任务区域',
@@ -77,10 +134,11 @@ export const LAYER_GROUP_LABELS: Record<LayerGroup, string> = {
   route: '航线/图形区',
   annulus: '圈层/参考线',
   symbol: '标绘符号',
+  text: '标签（文字与底块）',
 }
 
 const GROUP_LAYERS: Record<LayerGroup, string[]> = {
-  area: [LYR.areaFill, LYR.areaLine],
+  area: [LYR.areaFill, LYR.areaLine, LYR.areaLineDashed, LYR.areaLabel],
   pulse: [LYR.pulse],
   scan: [LYR.scan],
   link: [LYR.linkGlow, LYR.link],
@@ -90,12 +148,92 @@ const GROUP_LAYERS: Record<LayerGroup, string[]> = {
   target: [LYR.targetGlow, LYR.target, LYR.targetLabel],
   uav: [LYR.uavGlow, LYR.uavIcon, LYR.uav, LYR.uavLabel],
   mark: [LYR.mark, LYR.markLabel],
-  route: [LYR.routeGlow, LYR.route, LYR.routeDashed, LYR.shapeFill, LYR.shapeLine, LYR.shapeLineDashed],
+  route: [LYR.routeGlow, LYR.route, LYR.routeDashed, LYR.shapeFill, LYR.shapeLine, LYR.shapeLineDashed, LYR.routeLabel, LYR.shapeLabel],
   annulus: [LYR.annulus, LYR.annulusDashed],
   symbol: [LYR.symbol, LYR.symbolLabel],
+  // ★ 标签：统一文字层 + 底块两层（关掉它 = 图上所有文字与底块一起消失）
+  text: [LYR.text, LYR.textBoxFill, LYR.textBoxLine],
 }
 
 export const ALL_LAYER_GROUPS = Object.keys(GROUP_LAYERS) as LayerGroup[]
+
+/**
+ * **统一文字层**（★ 2026-09-18，方案 C；三次改造后定为"**单层 + 全常量**"）。
+ *
+ * 需求方两条放置规则（位置由 `src/primitives/text-layer.ts` 算好，写进要素坐标）：
+ *   · **航路的标识放到航路旁边**（不压在线身上）；
+ *   · **其他图元放到"整个图元"的右上角** —— 不是"中心点的右上角"，而是**外接框的右上角**。
+ *
+ * ⚠️ 血泪教训（这一天在这上面栽了三次，写清楚免得再犯）：
+ *   1. 把字号/颜色/描边/锚点/偏移做成**逐要素数据驱动**（style-spec 说它们支持）→
+ *      **整层文字几乎不可见**（框在、字没了），控制台只留一句
+ *      `Expected value to be of size array<number, 2>, but found string instead`。
+ *   2. 改成"一种样式一条图层 + 过滤器" → **仍然看不见**（过滤器把要素全滤掉了）。
+ *   3. 最后**逐项替换成常量**做二分：把 paint/layout 全换成常量后字立刻**清晰可见** ✓
+ *      —— 这一步既证明了**字形没问题**，也定位到问题出在数据驱动那几项上。
+ *   所以现在这条图层：**除了 `text-field`，全是常量**，连 `textStyle` 都不参与（不分样式）。
+ *   要恢复"角标/卡片/引线"三种样式，请**先在小页面上单独验证**再加回来。
+ *
+ * ⚠️ `text-font` 必须显式给成本工程的字形栈（`MAP_OPTIONS.textFont`）：
+ *    MapLibre 缺省栈 `["Open Sans Regular","Arial Unicode MS Regular"]` 在 `glyphsUrl` 下取不到 PBF，
+ *    **整层文字都会消失**。
+ */
+function textLayer(): never {
+  return {
+    id: LYR.text, type: 'symbol', source: SRC.text,
+    layout: {
+      'text-field': ['coalesce', ['get', 'text'], ''],
+      'text-font': MAP_OPTIONS.textFont,
+      // 位置由模块算好（锚点即目标地理位置），渲染器只做"字心对准锚点"
+      'text-anchor': 'center',
+      'text-offset': [0, 0],
+      // 需求方 2026-09-18：字号 24。
+      // ★ 24 不只是"更大"：字形 PBF 是按 **24px em** 生成的（`gen-glyphs.cs` 的 EM=24），
+      //   所以 24px 显示是 **1:1**，SDF 的过渡带正好落在 1 个屏幕像素上 —— 这是最清晰的一档；
+      //   16px 时是 0.67 倍缩，过渡带摊到 1.5px 以上，观感就是"糊"。
+      'text-size': 24,
+      // 不折行：缺省 `text-max-width` 是 10em，「出航通道（1000 m）」这种稍长的名字会被切成两行
+      'text-max-width': 40,
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+      'text-padding': 0,
+    },
+    paint: {
+      // 需求方：**白色文字、取消描边**（这一版先看无描边的观感）。
+      //   底块由模块自己画（方案 C），背景已经压深，白字直接压上去即可。
+      //   要恢复黑边：把 `text-halo-width` 给 0.6~1.5（超过 1.5 会开始吃笔画，
+      //   24px 汉字笔画只有 3~4px，给 4 会糊成一坨 —— 之前试过）。
+      'text-color': '#ffffff',
+      'text-halo-color': '#000000',
+      'text-halo-width': 0,
+    },
+  } as never
+}
+
+/**
+ * 文字**底块**（★ 2026-09-18 方案 C）：两层 = 填充 + 描边，几何由模块算（`SRC.textBox`）。
+ *
+ * 为什么不用 sprite + `icon-text-fit`（原先的做法）：那条路下框是按文字**行盒**算的，
+ * 行盒含行距与降部空间（CJK 没有降部 → 纯空白），于是框比字形大一圈、字还贴在框角上，
+ * 观感差且**调不动**（padding 只在框内加空隙，改不了框与字的相对位置）。
+ * 现在框和字**共用同一个锚点与同一套像素尺寸**（模块测字宽），天然对齐。
+ */
+function textBoxLayers(): never[] {
+  return [
+    {
+      id: LYR.textBoxFill, type: 'fill', source: SRC.textBox,
+      paint: {
+        'fill-color': ['coalesce', ['get', 'color'], '#0a1d33'],
+        'fill-opacity': ['coalesce', ['get', 'opacity'], 0.68],
+      },
+    },
+    {
+      id: LYR.textBoxLine, type: 'line', source: SRC.textBox,
+      // 细亮边：在深色影像上勾出框的轮廓，同时保持"轻"
+      paint: { 'line-color': 'rgba(140,190,235,.40)', 'line-width': 1 },
+    },
+  ] as never[]
+}
 
 // 航迹历史（用于尾迹）
 const trailHistory: Record<string, [number, number][]> = {}
@@ -112,6 +250,18 @@ export class LayerManager {
   private static opacity = new Map<LayerGroup, number>()
   /** 各图层原始的透明度数值（乘系数前的基准），避免反复相乘 */
   private static baseOpacity = new Map<string, number>()
+  /**
+   * 图层分组开关变化时的回调（★ 2026-09-18）。
+   * 统一文字层用它重算：某个分组被关掉时，那类图元的**文字与底块要一起不画**
+   * （文字层是所有种类共用的一条，没法靠图层可见性自动跟随，只能在数据侧过滤）。
+   */
+  private static visibilityHook: (() => void) | null = null
+
+  /** 注册上面的回调（`src/primitives/text-layer.ts` 启动时调一次） */
+  static registerVisibilityHook(fn: () => void) {
+    this.visibilityHook = fn
+  }
+
   /** setPhase 挂出的"样式重建后重放可见性"回调（触发即摘除，见 setPhase） */
   private static phaseRebindOff: (() => void) | null = null
 
@@ -144,6 +294,8 @@ export class LayerManager {
         map.setLayoutProperty(id, 'visibility', vis)
       }
     }
+    // 分组开关变了 → 通知文字层重算（文字与底块都要跟着分组的显隐走）
+    this.visibilityHook?.()
   }
 
   /**
@@ -160,8 +312,8 @@ export class LayerManager {
     const showGroup = p === 'T1' || p === 'T2' || p === 'T3'
     const showLink = p !== 'T0' && p !== 'T1'
     const on: string[] = []
-    // 与阶段无关的图层（任务区域、标注、航线/图形区）始终按分组开关显示
-    on.push(...GROUP_LAYERS.area, ...GROUP_LAYERS.mark, ...GROUP_LAYERS.route, ...GROUP_LAYERS.annulus, ...GROUP_LAYERS.symbol)
+    // 与阶段无关的图层（任务区域、标注、航线/图形区、**标签**）始终按分组开关显示
+    on.push(...GROUP_LAYERS.area, ...GROUP_LAYERS.mark, ...GROUP_LAYERS.route, ...GROUP_LAYERS.annulus, ...GROUP_LAYERS.symbol, ...GROUP_LAYERS.text)
     if (recon) on.push(LYR.scan)
     if (recon || p === 'T7') on.push(LYR.trail)
     // 无人机位置：侦察阶段起显示（T3–T7）。
@@ -184,7 +336,11 @@ export class LayerManager {
     const add = (id: string, data: GeoJSON.FeatureCollection) => {
       if (!map.getSource(id)) map.addSource(id, { type: 'geojson', data })
     }
-    add(SRC.area, this.areaData())
+    // ★ 2026-09-18（用户："我需要的是 map2d 只做绘画与显示"）：**区域源不再预置任何几何**。
+    //   原先这里是 `add(SRC.area, this.areaData())` —— 模块自带一批"业务场景假数据"
+    //   （北京 116.3974,39.9093 / 上海 121.4737,31.2304 的 A/B/C 区），宿主不覆盖就会画出来。
+    //   现在与其它源一致：**空数据源**，谁用谁 `MapDraw.set('area', …)` 塞。
+    add(SRC.area, emptyFC())
     add(SRC.link, emptyFC())
     add(SRC.group, emptyFC())
     add(SRC.target, emptyFC())
@@ -198,6 +354,10 @@ export class LayerManager {
     add(SRC.shape, emptyFC())
     add(SRC.annulus, emptyFC())
     add(SRC.symbol, emptyFC())
+    // ★ 2026-09-18 新增：统一文字源 + 文字底块源 + 选中高亮源（分别由 text-layer.ts / selection.ts 填）
+    add(SRC.text, emptyFC())
+    add(SRC.textBox, emptyFC())
+    add(SRC.selection, emptyFC())
 
     // ---- 区域多边形（任务分区） ----
     map.addLayer({
@@ -206,7 +366,15 @@ export class LayerManager {
     })
     map.addLayer({
       id: LYR.areaLine, type: 'line', source: SRC.area,
-      paint: { 'line-color': ['get', 'color'], 'line-width': 1.4, 'line-dasharray': [4, 3], 'line-opacity': 0.8 },
+      // 实线边界：要素没标 `dashed:true` 的都走这一条（默认实线）
+      filter: ['!=', ['get', 'dashed'], true],
+      paint: { 'line-color': ['get', 'color'], 'line-width': ['coalesce', ['get', 'weight'], 1.4], 'line-opacity': 0.9 },
+    })
+    map.addLayer({
+      id: LYR.areaLineDashed, type: 'line', source: SRC.area,
+      // 虚线边界：要素标了 `dashed: true` 的走这一条
+      filter: ['==', ['get', 'dashed'], true],
+      paint: { 'line-color': ['get', 'color'], 'line-width': ['coalesce', ['get', 'weight'], 1.4], 'line-dasharray': [4, 3], 'line-opacity': 0.8 },
     })
 
     // ---- 脉冲圈（无人机/目标外围扩散环，动画由 rAF 驱动） ----
@@ -270,7 +438,9 @@ export class LayerManager {
     map.addLayer({
       id: LYR.groupLabel, type: 'symbol', source: SRC.group,
       layout: {
-        'text-field': ['get', 'name'],
+        // ★ 2026-09-18 退役：文字统一由 LYR.text 画（锚点由模块算，见 text-layer.ts）
+        'text-field': ['literal', ''],
+        'text-font': MAP_OPTIONS.textFont,
         'text-size': 11.5,
         'text-offset': [0, 1.9],
         'text-anchor': 'top',
@@ -333,7 +503,9 @@ export class LayerManager {
     map.addLayer({
       id: LYR.targetLabel, type: 'symbol', source: SRC.target,
       layout: {
-        'text-field': ['get', 'label'],
+        // ★ 2026-09-18 退役：文字统一由 LYR.text 画
+        'text-field': ['literal', ''],
+        'text-font': MAP_OPTIONS.textFont,
         'text-size': 12,
         'text-offset': [0, 1.5],
         'text-anchor': 'top',
@@ -378,12 +550,23 @@ export class LayerManager {
     map.addLayer({
       id: LYR.uavLabel, type: 'symbol', source: SRC.uav,
       layout: {
-        'text-field': ['get', 'label'],
+        // ★ 2026-09-18 退役：文字统一由 LYR.text 画
+        'text-field': ['literal', ''],
         'text-size': 10.5,
-        'text-offset': [0, -1.4],
-        'text-anchor': 'bottom',
+        // 不折行（同 textLayerOf）：无人机标签是「机型 + 编号」两段，缺省会从空格处断成两行
+        'text-max-width': 30,
+        // ★ 放机身**右上角**（同 textLayerOf：文字左下角贴锚点 → 整体落在右上方）
+        'text-offset': [0.5, -0.5],
+        'text-anchor': 'bottom-left',
         'text-allow-overlap': false,      // 避让：重叠的标签由渲染器自动隐藏（M2-DRAW-11）
         'text-ignore-placement': false,
+        // ★ 底色块：见 textLayerOf 里的说明（无人机标签默认走 tag 样式那张图）
+        'icon-image': ['match', ['get', 'textStyle'], 'card', 'textbox-card', 'callout', 'textbox-callout', 'textbox-tag'],
+        'icon-text-fit': 'both',
+        'icon-text-fit-padding': [0, 3, 0, 3],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-padding': 0,
       },
       paint: { 'text-color': '#9fb3d1', 'text-halo-color': 'rgba(5,10,20,.85)', 'text-halo-width': 1.6 },
     })
@@ -401,12 +584,23 @@ export class LayerManager {
     map.addLayer({
       id: LYR.markLabel, type: 'symbol', source: SRC.mark,
       layout: {
-        'text-field': ['coalesce', ['get', 'text'], ''],
+        // ★ 2026-09-18 退役：文字统一由 LYR.text 画
+        'text-field': ['literal', ''],
         'text-size': ['coalesce', ['get', 'size'], 11],
-        'text-offset': [0, -1.3],
-        'text-anchor': 'bottom',
+        // 不折行（同 textLayerOf）
+        'text-max-width': 30,
+        // ★ 放图元**右上角**（同 textLayerOf）
+        'text-offset': [0.5, -0.5],
+        'text-anchor': 'bottom-left',
         'text-allow-overlap': false,      // 避让：重叠的标签由渲染器自动隐藏（M2-DRAW-11）
         'text-ignore-placement': false,
+        // ★ 底色块：见 textLayerOf 里的说明
+        'icon-image': ['match', ['get', 'textStyle'], 'card', 'textbox-card', 'callout', 'textbox-callout', 'textbox-tag'],
+        'icon-text-fit': 'both',
+        'icon-text-fit-padding': [0, 3, 0, 3],
+        'icon-allow-overlap': true,
+        'icon-ignore-placement': true,
+        'icon-padding': 0,
       },
       paint: { 'text-color': ['coalesce', ['get', 'color'], '#cfe3f5'], 'text-halo-color': 'rgba(5,10,20,.85)', 'text-halo-width': 1.8 },
     })
@@ -428,7 +622,8 @@ export class LayerManager {
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': ['coalesce', ['get', 'color'], '#22d3ee'],
-        'line-width': 1.6,
+        // ★ 2026-09-18：线宽可逐个图元给（几何原语 draw.line({widthPx}) 用）；不给就是原来的 1.6
+        'line-width': ['coalesce', ['get', 'widthPx'], 1.6],
         'line-opacity': 0.95,
       },
     })
@@ -438,7 +633,8 @@ export class LayerManager {
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
         'line-color': ['coalesce', ['get', 'color'], '#22d3ee'],
-        'line-width': 1.6,
+        // ★ 2026-09-18：线宽可逐个图元给（几何原语 draw.line({widthPx}) 用）；不给就是原来的 1.6
+        'line-width': ['coalesce', ['get', 'widthPx'], 1.6],
         'line-opacity': 0.95,
         'line-dasharray': [6, 4],
       },
@@ -510,7 +706,9 @@ export class LayerManager {
     map.addLayer({
       id: LYR.symbolLabel, type: 'symbol', source: SRC.symbol,
       layout: {
-        'text-field': ['coalesce', ['get', 'label'], ''],
+        // ★ 2026-09-18 退役：文字统一由 LYR.text 画
+        'text-field': ['literal', ''],
+        'text-font': MAP_OPTIONS.textFont,
         'text-size': 10.5,
         'text-offset': [0, 1.6],
         'text-anchor': 'top',
@@ -519,6 +717,28 @@ export class LayerManager {
       },
       paint: { 'text-color': '#cfe3f5', 'text-halo-color': 'rgba(5,10,20,.85)', 'text-halo-width': 1.6 },
     })
+
+    // ---- 文字底块 + 统一文字层（★ 2026-09-18，方案 C）----
+    // 顺序要紧：底块先加 → 落在文字**下面**；两者都加在最后 → 落在所有几何**上面**。
+    for (const l of textBoxLayers()) map.addLayer(l)
+    map.addLayer(textLayer())
+    // ★ 选中高亮（线 + 点圆环）：加在最后 → 压在所有图元之上；不进任何分组，只跟着选中态走
+    map.addLayer({
+      id: LYR.selLine, type: 'line', source: SRC.selection,
+      filter: ['==', ['geometry-type'], 'LineString'],
+      paint: {
+        'line-color': '#ffd400', 'line-width': 2.5, 'line-opacity': 0.95,
+        'line-dasharray': [2, 1.4],
+      },
+    } as never)
+    map.addLayer({
+      id: LYR.selCircle, type: 'circle', source: SRC.selection,
+      filter: ['==', ['geometry-type'], 'Point'],
+      paint: {
+        'circle-radius': 11, 'circle-color': 'rgba(255,212,0,0)',
+        'circle-stroke-color': '#ffd400', 'circle-stroke-width': 2.5,
+      },
+    } as never)
 
     this.startPulse()
   }
@@ -573,45 +793,16 @@ export class LayerManager {
     }
   }
 
-  // ---------------------------------------------------------------- 区域
-  /** 任务分区：按场景给出 A/B/C 等分区多边形（演示数据） */
-  private static areaData(): GeoJSON.FeatureCollection {
-    const s1 = this.scenario !== 'scenario-2'
-    const c: [number, number] = s1 ? [116.3974, 39.9093] : [121.4737, 31.2304]
-    const ring = (dlng: number, dlat: number, r: number): [number, number][] => {
-      const pts: [number, number][] = []
-      for (let i = 0; i <= 24; i++) {
-        const a = (i / 24) * Math.PI * 2
-        pts.push([c[0] + dlng + Math.cos(a) * r, c[1] + dlat + Math.sin(a) * r * 0.75])
-      }
-      return pts
-    }
-    const feats: GeoJSON.Feature[] = s1
-      ? [
-          { type: 'Feature', properties: { name: 'A 区域', color: '#3b82f6' }, geometry: { type: 'Polygon', coordinates: [ring(-0.075, 0.012, 0.045)] } },
-          { type: 'Feature', properties: { name: 'B 区域', color: '#22c55e' }, geometry: { type: 'Polygon', coordinates: [ring(0.062, 0.030, 0.040)] } },
-          { type: 'Feature', properties: { name: 'C 区域', color: '#ef4444' }, geometry: { type: 'Polygon', coordinates: [ring(0.008, -0.052, 0.036)] } },
-          { type: 'Feature', properties: { name: '敌方潜在部署区', color: '#f59e0b' }, geometry: { type: 'Polygon', coordinates: [ring(-0.010, 0.062, 0.033)] } },
-        ]
-      : [
-          { type: 'Feature', properties: { name: '西侧重点侦察区', color: '#f59e0b' }, geometry: { type: 'Polygon', coordinates: [ring(-0.062, -0.014, 0.042)] } },
-          { type: 'Feature', properties: { name: '北侧重点侦察区', color: '#f59e0b' }, geometry: { type: 'Polygon', coordinates: [ring(0.030, 0.055, 0.042)] } },
-          { type: 'Feature', properties: { name: '核心搜索区', color: '#22d3ee' }, geometry: { type: 'Polygon', coordinates: [ring(0.000, 0.002, 0.038)] } },
-        ]
-    const all = s1
-      ? feats
-      : [
-          { type: 'Feature', properties: { name: '当前搜索区域', color: '#3b82f6' }, geometry: { type: 'Polygon', coordinates: [ring(0, 0, 0.105)] } },
-          ...feats,
-        ]
-    return { type: 'FeatureCollection', features: all as GeoJSON.Feature[] }
-  }
+  // ---------------------------------------------------------------- 场景
 
   static setScenario(s: ScenarioKey) {
     if (this.scenario === s) return
     this.scenario = s
+    // ★ 2026-09-18：原先这里会 `src.setData(this.areaData())`，即**每次切场景都往区域源里灌一批
+    //   模块自带的业务假数据**。模块只做绘画与显示 —— 换场景不该凭空多出几个"分区"。
+    //   现在只**清空**区域源（要画什么由宿主 `MapDraw.set('area', …)` 决定）。
     const src = this.map?.getSource(SRC.area) as maplibregl.GeoJSONSource | undefined
-    src?.setData(this.areaData() as never)
+    src?.setData({ type: 'FeatureCollection', features: [] } as never)
   }
 
   /** 阶段决定哪些图层可见（如 T3 起显示扫描热点、T7 显示轨迹）；与分组开关取交集 */
@@ -814,6 +1005,31 @@ export class LayerManager {
   static setShapeFeatures(fc: GeoJSON.FeatureCollection) {
     const src = this.map?.getSource(SRC.shape) as maplibregl.GeoJSONSource | undefined
     src?.setData(fc as never)
+  }
+
+  /**
+   * 统一文字源（★ 2026-09-18 新增）。
+   * 点要素，属性：`text` / `size` / `color` / `halo` / `anchor` / `offset` —— 位置由
+   * `src/primitives/text-layer.ts` 按"航路旁边 / 图元整体右上角"算好。
+   */
+  static setTextFeatures(fcData: GeoJSON.FeatureCollection) {
+    const src = this.map?.getSource(SRC.text) as maplibregl.GeoJSONSource | undefined
+    src?.setData(fcData as never)
+  }
+
+  /** 文字底块源（★ 2026-09-18 新增，方案 C）：模块自己画的面，属性：`color` / `opacity` */
+  static setTextBoxFeatures(fcData: GeoJSON.FeatureCollection) {
+    const src = this.map?.getSource(SRC.textBox) as maplibregl.GeoJSONSource | undefined
+    src?.setData(fcData as never)
+  }
+
+  /**
+   * **选中高亮**源（★ 2026-09-18 新增）：只放"当前选中那个图元"的高亮几何
+   * （线/折线 → LineString；点 → Point 画圆环），空数组 = 没有选中。
+   */
+  static setSelectionFeatures(fcData: GeoJSON.FeatureCollection) {
+    const src = this.map?.getSource(SRC.selection) as maplibregl.GeoJSONSource | undefined
+    src?.setData(fcData as never)
   }
 
   // ---- 坐标显式的自由图元写入（绘图 API 用；与上面的"演示语义"方法解耦） ----

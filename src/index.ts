@@ -1,4 +1,4 @@
-﻿// map-2d · 唯一公开入口
+// map-2d · 唯一公开入口
 //
 // 宿主只允许从此处导入；src/ 下的其它文件都属于实现细节。
 //
@@ -83,8 +83,22 @@ export {
   step, setFollow, status as replayStatusValue, onReplayChange, sampleAt, sampleAll,
 } from './core/replay'
 export type { ReplayData, ReplayTrack, ReplaySample, ReplayState, ReplayStatus } from './core/replay'
-export { useInteraction, isDrawing, DEFAULT_KIND } from './core/interaction'
-export type { DrawMode, DrawKind, Measurement, EditTarget } from './core/interaction'
+// `hintModeOf` / `DrawHintMode`：2026-09-21 新增的**提示态**（几何原语绘制时提示「Esc 取消」用；
+// 与 `DrawMode` 正交，只回答"该提示什么"，不参与绘制 / 预览判断 —— 见 core/interaction.ts 的注释）
+export { useInteraction, isDrawing, DEFAULT_KIND, hintModeOf, GEOMETRY_KEYS } from './core/interaction'
+export type { DrawMode, DrawKind, DrawHintMode, Measurement, EditTarget } from './core/interaction'
+// **几何草稿**（2026-09-21 新增）：点 / 线 / 面"收笔 → 弹框 → 确认才落图"那条路的中间态。
+// 宿主读 `useGeometryDraft` 拿顶点与标签、改它（走 setPoints / setPoint / addRow / removeRow），
+// 点【确定】→ `commit()`（此时才写进 MapDraw）；【取消】/ Esc → `discard()`（图上不留痕）。
+export {
+  useGeometryDraft, draftNow, moveDraftVertex, insertDraftVertex,
+  minVerticesOf, draftCanEditRows, draftVertexError,
+} from './core/draft'
+export type { GeometryDraft, DraftKind, DraftVertex, DraftInit } from './core/draft'
+// **形状预览**（2026-09-21 新增）：宿主"指定尺寸模式"的实时预览 —— 中心 + 尺寸 → 虚线青色画出来。
+// 与几何草稿是**两条独立通道**（草稿 = 顶点图元的中间态；本条 = 线状几何的预览，不进图元集合）。
+export { useShapePreview, shapePreviewNow } from './core/shapePreview'
+export type { ShapePreview, ShapePreviewKind } from './core/shapePreview'
 export {
   distanceMeters, pathLengthMeters, polygonAreaM2, bearingDeg, pointToSegmentMeters,
   fmtDistance, fmtArea, verticesOf, withVertices, isEditableShape, insertVertex, removeVertex, nearestWithin,
@@ -137,12 +151,17 @@ export type { RuntimeStats, PrimitiveError } from './core/diagnostics'
 // 绘制 API（图元驱动渲染：无人机/区域/目标/链路/轨迹/扫描/脉冲/标注…）
 export { MapDraw } from './primitives/api'
 // ★ 2026-09-18 新增：**几何原语绘制 API**（点/线/闭合线/真面/圆/椭圆），只有函数、不吃配置文件
-export { draw, textBindingsOf, listGeometry, setBoundText, bindTextTo, boundTextOf, setBoundStyle, boundStyleOf } from './primitives/draw-api'
+// 编辑态用：按 id 读 / 写顶点、整体旋转（2026-09-21 —— 宿主不必知道 id 落在哪一类图元、顶点存哪个字段）
+export {
+  draw, textBindingsOf, listGeometry, setBoundText, bindTextTo, boundTextOf, setBoundStyle, boundStyleOf,
+  findGeometry, verticesOfId, setVerticesOfId, isVertexListKind, rotateGeometry,
+} from './primitives/draw-api'
 export type { DrawCommon, TextStyle, PointSpec, LineSpec, PolygonSpec, CircleSpec, EllipseSpec, TextBinding } from './primitives/draw-api'
 // ★ 2026-09-18 新增：**能画什么**的自描述清单（宿主菜单/表单由它生成，不再手抄）
 export { PRIMITIVE_CATALOG, TEXT_STYLES, catalogOf } from './primitives/catalog'
 export type { GeometryKey, GeometryRequest } from './core/interaction'
 export type { GeometryDef, ParamDef } from './primitives/catalog'
+// （圈层类图元 `AnnulusItem` / `AnnulusKind` 已在上面那处导出 —— 宿主"指定尺寸模式"用它们造图元）
 // ★ 2026-09-18 新增：**绑定到图元的文本框**浮层（三种样式：角标 / 卡片 / 引线标注）
 export { TextOverlay } from './ui/TextOverlay'
 export type {

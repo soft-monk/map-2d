@@ -191,6 +191,9 @@ function textLayer(): never {
       // ★ 24 不只是"更大"：字形 PBF 是按 **24px em** 生成的（`gen-glyphs.cs` 的 EM=24），
       //   所以 24px 显示是 **1:1**，SDF 的过渡带正好落在 1 个屏幕像素上 —— 这是最清晰的一档；
       //   16px 时是 0.67 倍缩，过渡带摊到 1.5px 以上，观感就是"糊"。
+      // ⚠️ 2026-09-21：若改动 `gen-glyphs.cs` 的 EM（候选改法①把 EM 提到 48），**上面这句就过期了**
+      //   —— 1:1 的档位会跟着变成 48。这条口径与"标签仍然发糊"的根因、四条候选改法，
+      //   一并记在 `map-2d/scripts/gen-glyphs.cs` 文件尾部的「附着：标签清晰度现状与候选改法」。
       'text-size': 24,
       // 不折行：缺省 `text-max-width` 是 10em，「出航通道（1000 m）」这种稍长的名字会被切成两行
       'text-max-width': 40,
@@ -199,13 +202,14 @@ function textLayer(): never {
       'text-padding': 0,
     },
     paint: {
-      // 需求方：**白色文字、取消描边**（这一版先看无描边的观感）。
-      //   底块由模块自己画（方案 C），背景已经压深，白字直接压上去即可。
-      //   要恢复黑边：把 `text-halo-width` 给 0.6~1.5（超过 1.5 会开始吃笔画，
-      //   24px 汉字笔画只有 3~4px，给 4 会糊成一坨 —— 之前试过）。
+      // 2026-09-21（需求方："绘制的标签字体糊、对比度低"）：
+      //   原先按上一轮"先看无描边的观感"把 halo 归零，实测在卫星影像上**白字发飘、边缘糊**。
+      //   现在恢复一圈**细黑描边**：它把白色笔画从底图里"抠"出来，是最直接的对比度手段，
+      //   同时也是视觉上的锐化（笔画边界由"白→影像"的渐变变成"白→黑→影像"的硬边）。
+      //   宽度取 1.0：24px 汉字的笔画约 3~4px，1.0 只包住边缘、不吃笔画（超过 1.5 才开始糊成一坨）。
       'text-color': '#ffffff',
       'text-halo-color': '#000000',
-      'text-halo-width': 0,
+      'text-halo-width': 1.0,
     },
   } as never
 }
@@ -223,14 +227,16 @@ function textBoxLayers(): never[] {
     {
       id: LYR.textBoxFill, type: 'fill', source: SRC.textBox,
       paint: {
+        // 2026-09-21：不透明度 0.68 → 0.85（需求方："对比度低"）。
+        //   0.68 时底图影像会明显透上来，白字与背景的分离度不够；0.85 仍能看清底下是影像，但字已经"站得住"。
         'fill-color': ['coalesce', ['get', 'color'], '#0a1d33'],
-        'fill-opacity': ['coalesce', ['get', 'opacity'], 0.68],
+        'fill-opacity': ['coalesce', ['get', 'opacity'], 0.85],
       },
     },
     {
       id: LYR.textBoxLine, type: 'line', source: SRC.textBox,
-      // 细亮边：在深色影像上勾出框的轮廓，同时保持"轻"
-      paint: { 'line-color': 'rgba(140,190,235,.40)', 'line-width': 1 },
+      // 细亮边：在深色影像上勾出框的轮廓，同时保持"轻"（2026-09-21 由 .40 提到 .55，与加厚的底一起提对比）
+      paint: { 'line-color': 'rgba(150,200,245,.55)', 'line-width': 1 },
     },
   ] as never[]
 }

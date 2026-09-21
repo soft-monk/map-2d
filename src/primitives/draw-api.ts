@@ -22,6 +22,11 @@
 //   ellipse    → shape（`radiusKm` + `radiusKmMinor` + `rotation`）
 import { MapDraw, type ShapeItem } from './api'
 import type { PrimitiveKind } from './api'
+// 2026-09-21：草稿提交（"确认后才绘制"）——本文件是**唯一**知道怎么把草稿画成图元的地方，
+// 通过 `registerDraftCommitter` 注册给 core/draft.ts（单向依赖，避免绕成 import 环）
+import { registerDraftCommitter, type GeometryDraft } from '../core/draft'
+import { distanceMeters, type LngLat } from '../core/geometry'
+import * as geom from '../core/geometry'   // 顶点读写的字段映射（verticesOf / withVertices）
 
 /** 所有几何原语共有的字段 */
 export interface DrawCommon {
@@ -337,6 +342,89 @@ export function listGeometry(): Record<string, string[]> {
   }
 }
 
+// ---------------------------------------------------------------- 编辑态：顶点读 / 写（2026-09-21）
+//
+// 为什么加这一段：需求"编辑态点击选中图元后也弹出合并框（可改坐标）"—— 宿主拿到了 id，
+// 但**它不该知道**这个 id 落在哪一类图元、顶点存在 `points` 还是 `polygon` 字段里（那是模块的事）。
+// 所以这里给两个极小的接口：按 id 读顶点、按 id 写顶点；字段映射复用 `geom.verticesOf/withVertices`。
+
+/** 顶点可自由增删的图元种类（折线 / 区域；点类只有 1 个顶点，删了就没了） */
+export function isVertexListKind(kind: PrimitiveKind): boolean {
+  return kind === 'route' || kind === 'area' || kind === 'track'
+}
+
+/** 按 id 找到图元：返回它落在哪一类 + 那条记录（找不到返回 null） */
+export function findGeometry(id: string): { kind: PrimitiveKind; item: Record<string, unknown> } | null {
+  const kinds: PrimitiveKind[] = ['label', 'route', 'area', 'shape']
+  for (const k of kinds) {
+    const item = (MapDraw.list(k) as unknown as Record<string, unknown>[]).find((x) => x.id === id)
+    if (item) return { kind: k, item }
+  }
+  return null
+}
+
+/** 按 id 读顶点（编辑态的合并框要显示它们；找不到图元返回空数组） */
+export function verticesOfId(id: string): LngLat[] {
+  const hit = findGeometry(id)
+  return hit ? geom.verticesOf(hit.kind, hit.item) : []
+}
+
+/**
+ * **把一个图元整体旋转**（2026-09-21 需求："选中状态后，支持按键 `r` 旋转区域"）。
+ *
+ * 为什么放在模块里而不是宿主：主机的"旋转"对模块来说就是"顶点整体转一下再写回"，
+ * 而**顶点存在哪、要不要闭合、哪几类图元能转**都是模块的知识（宿主不猜字段）。
+ *
+ * 口径（需求方定点）：
+ *   · **逆时针**（地图上逆时针：东 → 北）；
+ *   · 每次 **15°**（角度由宿主给，模块不写死）；
+ *   · **绕图元外接框的中心**转（比"顶点平均"稳：线/面顶点疏密不均时平均点会偏）；
+ *   · 只对**有顶点列表**的图元生效（面 / 折线）；点类与圈层类没有顶点可转 → 返回 false。
+ *   · 面若存成**闭合环**（末尾重复首点，`draw.polygon` 就是这么落的），旋转时**不影响**：
+ *     首尾仍保持重合（同一个点转完还是同一个点）。
+ *
+ * @returns 是否真的转动（false = 没这个图元 / 顶点少于 2 个）
+ */
+export function rotateGeometry(id: string, degrees: number): boolean {
+  const hit = findGeometry(id)
+  if (!hit) return false
+  const pts = geom.verticesOf(hit.kind, hit.item)
+  if (pts.length < 2) return false                       // 点类（1 个顶点）没有"转"的语义
+  // 外接框中心（用经纬度各自的极值中点，不用顶点平均）
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const p of pts) {
+    if (p[0] < minX) minX = p[0]
+    if (p[0] > maxX) maxX = p[0]
+    if (p[1] < minY) minY = p[1]
+    if (p[1] > maxY) maxY = p[1]
+  }
+  const cx = (minX + maxX) / 2
+  const cy = (minY + maxY) / 2
+  const a = (degrees * Math.PI) / 180
+  const cos = Math.cos(a)
+  const sin = Math.sin(a)
+  // 注意方向：地图上"东"是 lng+（x），"北"是 lat+（y）。要**逆时针**，用 (x,y) → (x·cos − y·sin, x·sin + y·cos)。
+  const out = pts.map(([x, y]) => {
+    const dx = x - cx
+    const dy = y - cy
+    return [cx + dx * cos - dy * sin, cy + dx * sin + dy * cos] as LngLat
+  })
+  return setVerticesOfId(id, out)
+}
+
+/**
+ * 按 id 写顶点（编辑态改坐标 / 加行 / 删行都走它）。
+ * @returns 是否写成功；失败（id 不存在）返回 false，**不改任何东西**
+ */
+export function setVerticesOfId(id: string, pts: LngLat[]): boolean {
+  const hit = findGeometry(id)
+  if (!hit) return false
+  if (!pts.length) return false                       // 不允许把顶点清空（点类删到 0 就没意义了）
+  if (!isVertexListKind(hit.kind) && pts.length !== 1) return false  // 点类只能 1 个顶点
+  MapDraw.add(hit.kind, geom.withVertices(hit.kind, hit.item, pts) as never)
+  return true
+}
+
 /**
  * **几何原语绘制入口** —— 只有函数，不吃配置文件。
  *
@@ -358,3 +446,63 @@ export const draw = {
   remove,
   list: listGeometry,
 }
+
+/**
+ * **把草稿提交成图元**（2026-09-21 新增；由 `core/draft.ts` 的 `commit()` 调用）。
+ *
+ * 这一段就是"点击确认后绘制"里**真正落图的那一下**：之前收笔只产生草稿（图上只有预览），
+ * 宿主在合并框里改完标签 / 经纬度、点了确定，才走到这里。
+ *
+ * 两条路：
+ *   · 草稿带 `make`（业务层自定义：军标 / 距离环 / 目标点…）→ 交给 `make` 造，**文字由它自己挂**
+ *     （与改造前的行为一致：`biz-catalog.ts` 的 `makeKind` 里 `bindTextTo(..., label)`）；
+ *   · 否则按几何种类画原语，并把标签当 `text` 一起传下去（模块原语自带绑定文本的能力）。
+ */
+function commitDraft(d: GeometryDraft): string | null {
+  const pts = d.points.map((p) => [p[0], p[1]] as LngLat)
+  if (d.make) {
+    const radiusKm = pts.length >= 2 ? distanceMeters(pts[0], pts[1]) / 1000 : 0
+    return d.make(pts.map((p) => ({ lng: p[0], lat: p[1] })), radiusKm)
+  }
+  const text = d.label || undefined
+  switch (d.kind) {
+    case 'point':
+      if (!pts.length) return null
+      return point({ lng: pts[0][0], lat: pts[0][1], sizePx: d.sizePx, color: d.color, text, textStyle: d.textStyle }) as string
+    case 'line':
+      if (pts.length < 2) return null
+      return line({ points: pts, widthPx: d.widthPx, color: d.color, dashed: d.dashed, text, textStyle: d.textStyle }) as string
+    case 'closedLine':
+      if (pts.length < 3) return null
+      return closedLine({ points: pts, widthPx: d.widthPx, color: d.color, dashed: d.dashed, text, textStyle: d.textStyle }) as string
+    case 'polygon':
+      if (pts.length < 3) return null
+      return polygon({
+        ring: pts, fillColor: d.fillColor, fillOpacity: d.fillOpacity,
+        strokeWidthPx: d.widthPx, dashed: d.dashed, text, textStyle: d.textStyle,
+      }) as string
+    // 圆 / 椭圆本轮不走草稿（`DRAFT_KEYS` 里没有它们）；真要用时给两个顶点即可
+    case 'circle':
+      if (pts.length < 2) return null
+      return circle({
+        lng: pts[0][0], lat: pts[0][1],
+        radiusKm: Math.max(0.05, distanceMeters(pts[0], pts[1]) / 1000),
+        color: d.color, fillColor: d.fillColor, fillOpacity: d.fillOpacity,
+        strokeWidthPx: d.widthPx, dashed: d.dashed, text, textStyle: d.textStyle,
+      }) as string
+    case 'ellipse':
+      if (pts.length < 2) return null
+      return ellipse({
+        lng: pts[0][0], lat: pts[0][1],
+        radiusKm: Math.max(0.05, distanceMeters(pts[0], pts[1]) / 1000),
+        radiusKmMinor: Math.max(0.05, distanceMeters(pts[0], pts[1]) / 2000),
+        color: d.color, fillColor: d.fillColor, fillOpacity: d.fillOpacity,
+        strokeWidthPx: d.widthPx, dashed: d.dashed, text, textStyle: d.textStyle,
+      }) as string
+    default:
+      return null
+  }
+}
+
+// 注册给 `core/draft.ts`（单向依赖：那边不 import 本文件，避免与 interaction 绕成环）
+registerDraftCommitter({ draw: commitDraft })

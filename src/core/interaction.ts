@@ -10,6 +10,20 @@ import type { PrimitiveKind } from '../primitives/api'
 export type DrawMode = 'none' | 'point' | 'line' | 'area' | 'measure-line' | 'measure-area'
 
 /**
+ * **提示专用的 mode 值**（2026-09-21 新增；需求："手动绘制图元时要有 Esc 取消的提示"）。
+ *
+ * 为什么单开一组值、不直接用 `DrawMode`：几何原语绘制（`setGeometry`）起绘时会把 `mode`
+ * **显式清成 'none'**（见下面 `setGeometry` 的注释），而屏上的提示全都是按 `mode` 判的。
+ * 若为了出提示就把 `mode` 设成 'line' / 'area'，会顺带踩两件事：
+ *   ① `isDrawing(mode)` 为真 → 地图下方的交互浮层也会冒出来（变成两处提示，重复）；
+ *   ② `DrawLayer` 的 `refresh()` 会按 `mode === 'area'` 改预览画法（多一层预览）。
+ *
+ * 所以这里另起 `'hint-*'`：**只回答"现在该提示什么"**，
+ * `isDrawing()` / 落点判断 / 预览逻辑**一律不认这几个值** → 绘制行为一个字不变。
+ */
+export type DrawHintMode = 'none' | 'hint-line' | 'hint-area'
+
+/**
  * **几何原语**（2026-09-18 新增；用户第 2 条 + 第 3 条）。
  *
  * 与 `DrawMode` 的关系：`DrawMode` 是"模块内部怎么画"的老枚举（落到 area/label/route/track 四类）；
@@ -19,6 +33,15 @@ export type DrawMode = 'none' | 'point' | 'line' | 'area' | 'measure-line' | 'me
  * 有了它，宿主不必再自己写"第一下点圆心、第二下点半径"的状态机 —— 那是绘制能力，属于模块。
  */
 export type GeometryKey = 'point' | 'line' | 'closedLine' | 'polygon' | 'circle' | 'ellipse'
+
+/**
+ * 六个几何种类的**运行期清单**（2026-09-21 新增）。
+ *
+ * 用途：宿主判断"图上选中的这个图元是不是几何原语"（是 → 合并框里给 加行 / 删行；
+ * 不是 —— 军标 / 距离轴 / 无人机 / 航迹 —— 就不给）。这类"有哪些值"的清单不该由宿主手抄：
+ * 手抄的那份会在模块加一种几何时悄悄过期。
+ */
+export const GEOMETRY_KEYS: GeometryKey[] = ['point', 'line', 'closedLine', 'polygon', 'circle', 'ellipse']
 
 /** 启动一次几何原语绘制的入参（外观都从函数入参来，不吃配置文件） */
 export interface GeometryRequest {
@@ -71,6 +94,14 @@ export interface EditTarget {
 
 interface InteractionState {
   mode: DrawMode
+  /**
+   * **提示态**（2026-09-21 新增；与 `mode` 正交，见 `DrawHintMode` 的注释）。
+   *
+   * 起几何原语绘制时由 `setGeometry` 按几何种类写入（线 → `hint-line`、面 → `hint-area`、
+   * 点 → `none`；圆 / 椭圆暂不提示），收笔 / 取消 / `reset()` 时清回 `none`。
+   * **它只用来决定"当前工具"那行提示怎么写，不参与任何绘制或预览判断。**
+   */
+  hintMode: DrawHintMode
   /** 已落下的顶点（未完成绘制时） */
   points: LngLat[]
   /** 绘制结果写入哪一类图元 */
@@ -109,6 +140,8 @@ interface InteractionState {
   setSnapHint(h: { point: LngLat; label?: string } | null): void
   endEdit(): void
   setHint(text: string): void
+  /** 直接置提示态（一般不用；`setGeometry` 会按几何种类自己算，见 `hintModeOf`） */
+  setHintMode(m: DrawHintMode): void
   /** 开始一次几何原语绘制（传 null 取消） */
   setGeometry(req: GeometryRequest | null): void
   /** 退出所有交互（Esc / 完成绘制后调用） */
@@ -117,6 +150,7 @@ interface InteractionState {
 
 export const useInteraction = create<InteractionState>((set, get) => ({
   mode: 'none',
+  hintMode: 'none',
   points: [],
   kind: 'area',
   measurement: null,
@@ -128,19 +162,25 @@ export const useInteraction = create<InteractionState>((set, get) => ({
 
   setGeometry(req) {
     // 起一个新的几何绘制 = 清掉上一次的半成品；同时把老的 `mode` 关掉，避免两套交互打架
-    set({ geo: req, mode: 'none', points: [], measurement: null, edit: null, hint: '', snapHint: null })
+    // （`mode` 清成 'none' 是**有意**的：几何原语那条路不靠 `mode` 走，见 `DrawHintMode` 的注释）
+    set({
+      geo: req, mode: 'none', points: [], measurement: null, edit: null, hint: '', snapHint: null,
+      // 提示态跟着这次绘制走：线 / 面 → 出"Esc 取消"提示，点 → 不出
+      hintMode: req ? hintModeOf(req.key) : 'none',
+    })
   },
 
   setMode(mode) {
     // 切换模式时清掉上一次绘制到一半的顶点（避免残留半成品）
-    set({ mode, points: [], edit: null, hint: '', snapHint: null })
+    // 同时清提示态：老 `mode` 那条路（量算）自己有提示，不吃 `hintMode`
+    set({ mode, points: [], edit: null, hint: '', snapHint: null, hintMode: 'none' })
   },
   setKind(kind) { set({ kind }) },
   addPoint(p) { set({ points: [...get().points, p] }) },
   setPoints(pts) { set({ points: pts }) },
   clearPoints() { set({ points: [] }) },
   setMeasurement(m) { set({ measurement: m }) },
-  startEdit(kind, id) { set({ edit: { kind, id, dragging: null }, mode: 'none', points: [] }) },
+  startEdit(kind, id) { set({ edit: { kind, id, dragging: null }, mode: 'none', points: [], hintMode: 'none' }) },
   setDragging(i) {
     const e = get().edit
     if (e) set({ edit: { ...e, dragging: i } })
@@ -149,8 +189,22 @@ export const useInteraction = create<InteractionState>((set, get) => ({
   setSnapEnabled(on) { set({ snapEnabled: on, snapHint: on ? get().snapHint : null }) },
   setSnapHint(h) { set({ snapHint: h }) },
   setHint(text) { set({ hint: text }) },
-  reset() { set({ mode: 'none', points: [], edit: null, hint: '', snapHint: null }) },
+  setHintMode(m) { set({ hintMode: m }) },
+  reset() { set({ mode: 'none', points: [], edit: null, hint: '', snapHint: null, hintMode: 'none' }) },
 }))
+
+/**
+ * 几何种类 → 提示态（2026-09-21）。
+ *
+ * 只对**多点类**（折线 / 闭合线 / 真面）提示"单击落点，双击 / Enter 结束，Esc 取消"：
+ * 它们要落好几个点、半途能 Esc 反悔。`point` 是单击即完成；`circle` / `ellipse` 是两下类，
+ * **本轮按需求暂时也不提示**（需求方点名："线 / 面"）。
+ */
+export function hintModeOf(key: GeometryKey): DrawHintMode {
+  if (key === 'line' || key === 'closedLine') return 'hint-line'
+  if (key === 'polygon') return 'hint-area'
+  return 'none'
+}
 
 /** 当前模式是否处于"点击落点"的绘制态 */
 export function isDrawing(mode: DrawMode): boolean {

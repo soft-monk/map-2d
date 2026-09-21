@@ -36,6 +36,11 @@ const PAD_Y = 1.5
 /** 底块与图元之间的间隙（px） */
 const GAP = 5
 /**
+ * **锚点从图元上"往外延展"多少像素**（2026-09-21 需求方："往外延展一点点距离"）。
+ * 方向 = 图元"最左下 → 最右上"（见 `extendOutward`）。改这一个数即可调"一点点"到底多大。
+ */
+const ANCHOR_OUT_PX = 6
+/**
  * 文字锚点的补偿系数（单位：字号）。
  * 实测：`text-anchor: 'center'` 下渲染器把**字心**放在锚点上方约 1em（24px 下量过），
  * 补 1.05em 后字心落在框心（上下余量各约 2px = PAD_Y 量级）。
@@ -125,71 +130,112 @@ function pxToDeg(px: number, lat: number, zoom: number) {
 
 interface Anchor { lng: number; lat: number }
 
-function bboxTopRight(pts: [number, number][]): Anchor | null {
+/**
+ * **图元上"最右上角"的那个顶点**（2026-09-21 需求方口径）。
+ *
+ * 需求原话："按图元上的最右上角的点来算，往外延展一点点距离" —— 也就是**不再用外接框右上角**
+ * （那个角可能压根不在图形上），而是取图元**自己的顶点**里最靠右上的那一个。
+ *
+ * 判据：**经度 + 纬度之和最大**（需求方定稿）。矩形上它恰好就是右上角那个顶点；
+ * 任意不规则多边形也总能选出唯一的一个"最右上"顶点。
+ */
+function topRightVertex(pts: [number, number][]): Anchor | null {
   if (!pts.length) return null
-  let maxLng = -Infinity, maxLat = -Infinity
-  for (const [lng, lat] of pts) {
-    if (lng > maxLng) maxLng = lng
-    if (lat > maxLat) maxLat = lat
+  let best = pts[0]
+  let bestSum = best[0] + best[1]
+  for (const p of pts) {
+    const s = p[0] + p[1]
+    if (s > bestSum) { best = p; bestSum = s }
   }
-  return { lng: maxLng, lat: maxLat }
+  return { lng: best[0], lat: best[1] }
 }
 
-/** 折线中点（按经纬度分段长度取中点；够用，不必投影到米） */
-function lineMidpoint(pts: [number, number][]): Anchor | null {
-  if (pts.length < 2) return null
-  const segLen: number[] = []
-  let total = 0
-  for (let i = 1; i < pts.length; i++) {
-    const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
-    segLen.push(d)
-    total += d
+/**
+ * **把锚点从图形上"往外延展"一点点**（2026-09-21 需求方："往外延展一点点距离"，起点 6 px）。
+ *
+ * 方向 = **"最左下" → "最右上"**（需求方定稿的"从图元中心指向那个点的方向"；用这两个极值点求方向，
+ * 比外接框中心更贴形状，且**单点图元也成立** —— 点类就是"点 → 点"的退化情形，锚点即点本身，
+ * 与"标签挂在点的右上"这条既有行为一致）。
+ * 距离按**屏幕像素**算，复用本文件已有的 `pxToDeg`（不引第二套换算口径）。
+ */
+function extendOutward(anchor: Anchor, pts: [number, number][], lat: number, zoom: number): Anchor {
+  if (!pts.length) return anchor
+  let maxSum = -Infinity, minSum = Infinity
+  let trLng = anchor.lng, trLat = anchor.lat, blLng = anchor.lng, blLat = anchor.lat
+  for (const [lng, la] of pts) {
+    const s = lng + la
+    if (s > maxSum) { maxSum = s; trLng = lng; trLat = la }
+    if (s < minSum) { minSum = s; blLng = lng; blLat = la }
   }
-  if (total === 0) return { lng: pts[0][0], lat: pts[0][1] }
-  let acc = 0
-  for (let i = 0; i < segLen.length; i++) {
-    if (acc + segLen[i] >= total / 2) {
-      const t = (total / 2 - acc) / (segLen[i] || 1)
-      return {
-        lng: pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t,
-        lat: pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t,
-      }
-    }
-    acc += segLen[i]
-  }
-  return { lng: pts[pts.length - 1][0], lat: pts[pts.length - 1][1] }
-}
-
-/** 旋转椭圆的轴对齐外接框右上角（解析解，与渲染用的椭圆环一致） */
-function ellipseTopRight(item: Record<string, unknown>): Anchor | null {
-  const lng = item.lng as number | undefined
-  const lat = item.lat as number | undefined
-  if (typeof lng !== 'number' || typeof lat !== 'number') return null
-  const a = (item.radiusKm as number) ?? 0            // 长半轴（km）
-  const b = ((item.radiusKmMinor as number) ?? a)     // 短半轴（km）
-  const th = (((item.rotation as number) ?? 0) * Math.PI) / 180
-  const hxKm = Math.hypot(a * Math.cos(th), b * Math.sin(th))
-  const hyKm = Math.hypot(a * Math.sin(th), b * Math.cos(th))
+  const vx = trLng - blLng
+  const vy = trLat - blLat
+  const len = Math.hypot(vx, vy)
+  if (len < 1e-12) return anchor                       // 退化（单点）→ 方向无意义，锚点即该点
+  const { dLat, dLng } = pxToDeg(ANCHOR_OUT_PX, lat, zoom)
+  // 归一化后各轴分别按"1 px 对应多少度"缩放 —— 与标签框的偏移用同一套换算
   return {
-    lng: lng + hxKm / (111.32 * Math.cos((lat * Math.PI) / 180)),
-    lat: lat + hyKm / 110.54,
+    lng: anchor.lng + (vx / len) * dLng,
+    lat: anchor.lat + (vy / len) * dLat,
   }
 }
 
 /**
- * 锚点规则（需求方 2026-09-18）：
- *   · **航路（route）**：取折线中点 —— 字与底块挂在"航路旁边"（中点右上），不压在线身上
- *   · **面（area）**：取**外接框右上角** —— "图元整体的右上角"，不是几何中心点的右上角
- *   · **圆/椭圆（shape）**：同上，取外接框右上角（旋转椭圆的解析外接框）
- *   · **点类（label/drone/target/cluster/symbol）**：就是点本身，字挂在它右上
+ * **圆 / 椭圆的"最右上那个点"**（2026-09-21 需求方口径）。
+ *
+ * 圆上没有顶点，取**既不超出圆周、又最靠右上**的那一点 —— 也就是**右上 45° 方位**在圆/椭圆上的点。
+ * 换算**照抄渲染器**（`primitives/api.ts` 的 `ellipseRing`）：同一套 `R = 6371.0088` 与方位角旋转，
+ * 保证"锚点落在画出来的那个椭圆上"，不会因为两套常数而偏出去。
  */
-function anchorOf(kind: PrimitiveKind, item: Record<string, unknown>): Anchor | null {
-  if (kind === 'area') return bboxTopRight(((item.polygon as [number, number][]) ?? []).slice())
-  if (kind === 'shape') return ellipseTopRight(item)
-  if (kind === 'route') return lineMidpoint(((item.points as [number, number][]) ?? []).slice())
+function ellipseTopRight(item: Record<string, unknown>): Anchor | null {
   const lng = item.lng as number | undefined
   const lat = item.lat as number | undefined
-  return typeof lng === 'number' && typeof lat === 'number' ? { lng, lat } : null
+  if (typeof lng !== 'number' || typeof lat !== 'number') return null
+  const R = 6371.0088                                   // km（与渲染器一致）
+  const rad = (d: number) => (d * Math.PI) / 180
+  const deg = (r: number) => (r * 180) / Math.PI
+  const a = (item.radiusKm as number) ?? 0              // 长半轴（km）
+  const b = ((item.radiusKmMinor as number) ?? a)       // 短半轴（km）
+  const rot = rad((item.rotation as number) ?? 0)       // 长轴方位角（正北 0、顺时针）
+  const cosLat = Math.max(1e-6, Math.cos(rad(lat)))
+  // 右上 45° 的参数点（局部平面坐标：东 x、北 y）
+  const x = a * Math.cos(Math.PI / 4)
+  const y = b * Math.sin(Math.PI / 4)
+  const east = x * Math.cos(rot) + y * Math.sin(rot)
+  const north = -x * Math.sin(rot) + y * Math.cos(rot)
+  return { lng: lng + deg(east / (R * cosLat)), lat: lat + deg(north / R) }
+}
+
+/**
+ * 锚点规则（**2026-09-21 改版**；原规则是"外接框右上角 / 折线中点"，需求方否掉了）：
+ *   · **面（area）**：取**多边形顶点里"最右上"的那一个**，再往外延 `ANCHOR_OUT_PX`
+ *   · **圆/椭圆（shape）**：取**右上 45° 在圆上的点**，再往外延（它没有顶点）
+ *   · **航线（route）**：取**折线顶点里"最右上"的那一个**，再往外延（不再用中点）
+ *   · **点类（label/drone/target/cluster/symbol）**：就是点本身，再往外延（点自身即其"最右上顶点"）
+ *
+ * `zoom` 只用于"往外延"那一步（像素换算）；不给就跳过延展、只给锚点。
+ */
+function anchorOf(kind: PrimitiveKind, item: Record<string, unknown>, zoom: number): Anchor | null {
+  if (kind === 'area') {
+    const pts = ((item.polygon as [number, number][]) ?? []).slice()
+    const tr = topRightVertex(pts)
+    return tr ? extendOutward(tr, pts, tr.lat, zoom) : null
+  }
+  if (kind === 'shape') {
+    const tr = ellipseTopRight(item)
+    if (!tr) return null
+    // 椭圆：锚点已在圆周上的"最右上点"（`ellipseTopRight` 直接算的就是它）→ 无需再延展
+    return tr
+  }
+  if (kind === 'route') {
+    const pts = ((item.points as [number, number][]) ?? []).slice()
+    const tr = topRightVertex(pts)
+    return tr ? extendOutward(tr, pts, tr.lat, zoom) : null
+  }
+  const lng = item.lng as number | undefined
+  const lat = item.lat as number | undefined
+  if (typeof lng !== 'number' || typeof lat !== 'number') return null
+  // 点类：点自己就是"最右上顶点"，`pts` 只含它一个 → 延展方向退化，锚点即点本身（与改造前一致）
+  return extendOutward({ lng, lat }, [[lng, lat]], lat, zoom)
 }
 
 // ---------------------------------------------------------------- 底块形状（圆角矩形）
@@ -235,7 +281,8 @@ export function syncText(): void {
       if (raw.visible === false) continue
       const text = labelOf(kind, raw)
       if (!text) continue
-      const anchor = anchorOf(kind, raw)
+      // `zoom` 只用于"锚点往外延展几像素"这一步（2026-09-21）
+      const anchor = anchorOf(kind, raw, zoom)
       if (!anchor) continue
 
       const style = (typeof raw.textStyle === 'string' ? raw.textStyle : 'tag') as StyleKey
@@ -278,7 +325,9 @@ export function syncText(): void {
       const top = cy + (boxH / 2) * dLat
       boxFeats.push({
         type: 'Feature',
-        properties: { color: '#0a1d33', opacity: 0.68 },
+        // 2026-09-21（需求方："标签对比度低"）：底块不透明度 0.68 → 0.85。
+        //   这个值会**逐要素喂给图层**（覆盖 `textBoxLayers()` 里的缺省），所以两处要一起改。
+        properties: { color: '#0a1d33', opacity: 0.85 },
         geometry: { type: 'Polygon', coordinates: [roundedRect(left, bottom, right, top, RADIUS * dLng, RADIUS * dLat)] },
       })
     }

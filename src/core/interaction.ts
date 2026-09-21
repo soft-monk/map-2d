@@ -79,6 +79,13 @@ interface InteractionState {
   measurement: Measurement | null
   /** 编辑中的图元 */
   edit: EditTarget | null
+  /**
+   * **吸附开关**（2026-09-20 按需求恢复；默认开）。
+   * 历史：2026-09-18 需求方说"吸附没必要"整条删过一次，现在按新需求（编辑/拖拽要吸附）恢复。
+   */
+  snapEnabled: boolean
+  /** 光标处的吸附提示（有值 = 当前会吸附到该点）：画吸附标记 + 「吸附到 」文案都用它 */
+  snapHint: { point: LngLat; label?: string } | null
   /** 交互提示文案（浮层展示） */
   hint: string
   /**
@@ -98,6 +105,8 @@ interface InteractionState {
   setMeasurement(m: Measurement | null): void
   startEdit(kind: PrimitiveKind, id: string): void
   setDragging(i: number | null): void
+  setSnapEnabled(on: boolean): void
+  setSnapHint(h: { point: LngLat; label?: string } | null): void
   endEdit(): void
   setHint(text: string): void
   /** 开始一次几何原语绘制（传 null 取消） */
@@ -113,16 +122,18 @@ export const useInteraction = create<InteractionState>((set, get) => ({
   measurement: null,
   edit: null,
   hint: '',
+  snapEnabled: true,
+  snapHint: null,
   geo: null,
 
   setGeometry(req) {
     // 起一个新的几何绘制 = 清掉上一次的半成品；同时把老的 `mode` 关掉，避免两套交互打架
-    set({ geo: req, mode: 'none', points: [], measurement: null, edit: null, hint: '' })
+    set({ geo: req, mode: 'none', points: [], measurement: null, edit: null, hint: '', snapHint: null })
   },
 
   setMode(mode) {
     // 切换模式时清掉上一次绘制到一半的顶点（避免残留半成品）
-    set({ mode, points: [], edit: null, hint: '' })
+    set({ mode, points: [], edit: null, hint: '', snapHint: null })
   },
   setKind(kind) { set({ kind }) },
   addPoint(p) { set({ points: [...get().points, p] }) },
@@ -135,8 +146,10 @@ export const useInteraction = create<InteractionState>((set, get) => ({
     if (e) set({ edit: { ...e, dragging: i } })
   },
   endEdit() { set({ edit: null }) },
+  setSnapEnabled(on) { set({ snapEnabled: on, snapHint: on ? get().snapHint : null }) },
+  setSnapHint(h) { set({ snapHint: h }) },
   setHint(text) { set({ hint: text }) },
-  reset() { set({ mode: 'none', points: [], edit: null, hint: '' }) },
+  reset() { set({ mode: 'none', points: [], edit: null, hint: '', snapHint: null }) },
 }))
 
 /** 当前模式是否处于"点击落点"的绘制态 */

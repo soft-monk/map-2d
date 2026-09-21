@@ -168,7 +168,7 @@ export function removeVertex(pts: LngLat[], index: number, min: number): LngLat[
 }
 
 /**
- * **命中检测**：在候选点里找离目标最近、且距离小于阈值的那个点。
+ * **找最近候选点**：在候选点里找离目标最近、且距离小于阈值的那个点  两个用途共用：
  * `thresholdMeters` 由调用方按屏幕像素换算而来（见 DrawLayer 的顶点拖拽）。
  *
  * ★ 2026-09-18（用户："点上面有吸附功能？没必要，可以删除该功能"）：
@@ -176,6 +176,9 @@ export function removeVertex(pts: LngLat[], index: number, min: number): LngLat[
  *   并在屏幕上画一个吸附标记 + 提示「吸附到 …」。那个功能**已整条删除**。
  *   本函数保留下来，只服务**顶点拖拽的命中检测**（"按下的是哪个手柄"）—— 那不是吸附，
  *   去掉它顶点就拖不动了。名字改成 `nearestWithin` 以免与已删的吸附混淆。
+ *
+ *  2026-09-20（按新需求恢复吸附）：它同时是**绘制落点 / 顶点拖拽的吸附判定**
+ *   （`DrawLayer` 用 `SNAP_PX` 阈值调用它），也仍是**顶点手柄的命中检测**（`HANDLE_PX` 阈值）。
  */
 export function nearestWithin(
   target: LngLat,

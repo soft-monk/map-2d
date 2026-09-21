@@ -22,8 +22,11 @@ const PREVIEW_SRC = 'src-2d-interaction'
 const LYR_PREVIEW_LINE = 'lyr-2d-preview-line'
 const LYR_PREVIEW_FILL = 'lyr-2d-preview-fill'
 const LYR_PREVIEW_VERTEX = 'lyr-2d-preview-vertex'
+const LYR_PREVIEW_SNAP = 'lyr-2d-preview-snap'
 
 // 顶点手柄的命中半径（原 `SNAP_PX` —— 吸附删掉后只剩"按下的是哪个手柄"这一个用途，名字改准）
+/** 吸附判定阈值（屏幕像素） 2026-09-20 按需求恢复吸附（历史：9-18 曾整条删除，当时这里被改名为 HANDLE_PX） */
+const SNAP_PX = 10
 const HANDLE_PX = 10
 /** 顶点手柄半径（像素） */
 const HANDLE_R = 5
@@ -47,9 +50,23 @@ function pxToMeters(map: MlMap, px: number): number {
   return mpp * px
 }
 
-// ★ 2026-09-18：这里原先还有一个 `snapCandidates()` —— 收集全图所有图元的顶点当"吸附候选"。
-//   用户说吸附没必要，**整条链路已删**（候选收集 / 吸附判定 / 吸附标记 / 「吸附到 …」提示）。
-//   现在光标落哪儿就是哪儿。
+/**
+ * **收集"可吸附的候选点"**：全图所有图元的顶点（可排除某个图元  拖它自己时别吸到自己）。
+ * 2026-09-20 按需求恢复（历史：2026-09-18 随吸附一起删过）。
+ */
+function snapCandidates(exclude?: { kind: PrimitiveKind; id: string }): { point: LngLat; label?: string }[] {
+  const kinds: PrimitiveKind[] = ['area', 'drone', 'target', 'link', 'track', 'scan', 'cluster', 'label', 'route', 'shape']
+  const out: { point: LngLat; label?: string }[] = []
+  for (const k of kinds) {
+    for (const item of MapDraw.list(k) as unknown as Record<string, unknown>[]) {
+      if (exclude && exclude.kind === k && exclude.id === item.id) continue
+      for (const v of verticesOf(k, item)) {
+        if (Number.isFinite(v[0]) && Number.isFinite(v[1])) out.push({ point: v, label: `${k}:${String(item.id)}` })
+      }
+    }
+  }
+  return out
+}
 
 /**
  * 圆/椭圆的**预览环**（48 边形近似）。
@@ -127,7 +144,17 @@ function setup(map: MlMap): () => void {
         },
       })
     }
-    // ★ 2026-09-18：吸附预览图层（`lyr-2d-preview-snap`）已整条删除 —— 用户："吸附没必要"。
+    // 吸附标记层（2026-09-20 按需求恢复）：光标附近有可吸附点时画一个琥珀色圈
+    if (!map.getLayer(LYR_PREVIEW_SNAP)) {
+      map.addLayer({
+        id: LYR_PREVIEW_SNAP, type: 'circle', source: PREVIEW_SRC,
+        filter: ['==', ['get', 'role'], 'snap'],
+        paint: {
+          'circle-radius': 8, 'circle-color': 'rgba(0,0,0,0)',
+          'circle-stroke-color': '#f59e0b', 'circle-stroke-width': 2,
+        },
+      })
+    }
 
     const setPreview = (features: GeoJSON.Feature[]) => {
       const src = map.getSource(PREVIEW_SRC) as maplibregl.GeoJSONSource | undefined
@@ -167,6 +194,9 @@ function setup(map: MlMap): () => void {
         }
         vs.forEach((v, i) => feats.push(pt(v, { role: 'vertex', active: ed.dragging === i })))
       }
+
+      // 吸附标记（2026-09-20 恢复）
+      if (st.snapHint) feats.push(pt(st.snapHint.point, { role: 'snap' }))
 
       setPreview(feats)
     }
@@ -253,7 +283,7 @@ function setup(map: MlMap): () => void {
     // ---- 交互事件 ----
     const onClick = (e: MapMouseEvent) => {
       const st = useInteraction.getState()
-      const p = [e.lngLat.lng, e.lngLat.lat] as LngLat   // 落点就是光标位置（吸附已删）
+      const p = st.snapHint ? st.snapHint.point : ([e.lngLat.lng, e.lngLat.lat] as LngLat)   // 有吸附就用吸附点
 
       // ★ 2026-09-18：**几何原语绘制**（点/线/闭合线/真面/圆/椭圆）—— 落点语义由模块自己处理，
       //   宿主只用 `mapCommands.setGeometry(key)` 起一次，不再自己写"两下点出半径"的状态机。
@@ -351,10 +381,13 @@ function setup(map: MlMap): () => void {
       }
 
       // 绘制中的预览跟随光标
-      // ★ 2026-09-18（用户："点上面有吸附功能？没必要，可以删除该功能"）：**吸附整条链路已删** ——
-      //   光标落哪儿就是哪儿，不再吸到已有点、不再画吸附标记、不再弹「吸附到 …」。
+      // 2026-09-20：**吸附恢复**（历史：9-18 按需求删过） 光标附近有可吸附点就吸住它、
+      //   画琥珀色标记，并把提示写进 snapHint（落点 onClick 用它）。
       if (isDrawing(st.mode)) {
         const pts = st.points
+        const snap = st.snapEnabled ? nearestWithin(cursor, snapCandidates(), pxToMeters(map, SNAP_PX)) : null
+        st.setSnapHint(snap ? { point: snap.point, label: snap.label } : null)
+        const snapFeat = snap ? [pt(snap.point, { role: 'snap' })] : []
         if (pts.length) {
           const preview = [...pts, cursor]
           if (st.mode === 'area' || st.mode === 'measure-area') {
@@ -362,49 +395,93 @@ function setup(map: MlMap): () => void {
               ...(preview.length >= 3 ? [poly(preview, { role: 'preview-area' })] : []),
               line([...preview, preview[0]], { role: 'preview-area' }),
               ...pts.map((p, i) => pt(p, { role: 'vertex', active: i === pts.length - 1 })),
+              ...snapFeat,
             ])
           } else {
             setPreview([
               line(preview, { role: 'preview-line' }),
               ...pts.map((p, i) => pt(p, { role: 'vertex', active: i === pts.length - 1 })),
+              ...snapFeat,
             ])
           }
         } else refresh()
         return
       }
 
-      // 编辑中的拖拽
+      // 编辑中的拖拽： 单顶点（含吸附） 整块移动（dragging === -1）
       if (st.edit && st.edit.dragging != null) {
         const vs = editVertices()
         const idx = st.edit.dragging
-        if (idx < 0 || idx >= vs.length) return
-        vs[idx] = cursor
         const item = (MapDraw.list(st.edit.kind) as unknown as Record<string, unknown>[]).find((x) => x.id === st.edit!.id)
-        if (item) {
-          MapDraw.add(st.edit.kind, withVertices(st.edit.kind, item, vs) as never)
-          const ring = (st.edit.kind === 'area' && vs.length >= 3) ? [...vs, vs[0]] : vs
+        if (!item) return
+        if (idx === -1) {
+          // ---- 拖整块（2026-09-20 需求 B 新增）：按"按下那一刻的顶点"整体平移 ----
+          if (!dragOrigin || !dragBase) return
+          const dlng = cursor[0] - dragOrigin[0]
+          const dlat = cursor[1] - dragOrigin[1]
+          const moved = dragBase.map(([x, y]) => [x + dlng, y + dlat] as LngLat)
+          MapDraw.add(st.edit.kind, withVertices(st.edit.kind, item, moved) as never)
+          const ring = (st.edit.kind === 'area' && moved.length >= 3) ? [...moved, moved[0]] : moved
           setPreview([
-            ...(vs.length > 1 ? [line(ring, { role: 'edit-edge' })] : []),
-            ...vs.map((v, i) => pt(v, { role: 'vertex', active: i === idx })),
+            ...(moved.length > 1 ? [line(ring, { role: 'edit-edge' })] : []),
+            ...moved.map((v) => pt(v, { role: 'vertex' })),
           ])
+          return
         }
+        if (idx < 0 || idx >= vs.length) return
+        // 单顶点：先吸附（排除正在编辑的这条，别吸到自己）
+        const snap = st.snapEnabled ? nearestWithin(cursor, snapCandidates(st.edit), pxToMeters(map, SNAP_PX)) : null
+        st.setSnapHint(snap ? { point: snap.point, label: snap.label } : null)
+        vs[idx] = snap ? snap.point : cursor
+        MapDraw.add(st.edit.kind, withVertices(st.edit.kind, item, vs) as never)
+        const ring = (st.edit.kind === 'area' && vs.length >= 3) ? [...vs, vs[0]] : vs
+        setPreview([
+          ...(vs.length > 1 ? [line(ring, { role: 'edit-edge' })] : []),
+          ...vs.map((v, i) => pt(v, { role: 'vertex', active: i === idx })),
+          ...(snap ? [pt(snap.point, { role: 'snap' })] : []),
+        ])
+        return
       }
+
+      // 不在绘制/拖拽时把吸附提示清掉（免得标记留在屏幕上）
+      if (st.snapHint) st.setSnapHint(null)
     }
 
-    // 编辑：按下顶点手柄 → 命中哪个顶点就拖哪个
+    /** 整块拖动的起点（按下时的经纬度）与"按下那一刻的顶点"（2026-09-20 新增） */
+    let dragOrigin: LngLat | null = null
+    let dragBase: LngLat[] | null = null
+
+    // 编辑：按在手柄上就拖那个顶点；按在图元身上就拖整块移动
     const onMouseDown = (e: MapMouseEvent) => {
       const st = useInteraction.getState()
       if (!st.edit) return
+      const cur: LngLat = [e.lngLat.lng, e.lngLat.lat]
       const vs = editVertices()
-      const best = nearestWithin([e.lngLat.lng, e.lngLat.lat], vs.map((p) => ({ point: p })), pxToMeters(map, HANDLE_PX))
+      const best = nearestWithin(cur, vs.map((p) => ({ point: p })), pxToMeters(map, HANDLE_PX))
       if (best) {
         st.setDragging(vs.findIndex((p) => p[0] === best.point[0] && p[1] === best.point[1]))
+        map.getCanvas().style.cursor = 'grabbing'
+        return
+      }
+      // 没按在手柄上：判"是否按在这个图元身上"（点：离点的距离；线/面：离任一线段的距离）
+      const item = (MapDraw.list(st.edit.kind) as unknown as Record<string, unknown>[]).find((x) => x.id === st.edit!.id)
+      if (!item) return
+      const thM = pxToMeters(map, HANDLE_PX)
+      const onBody = vs.length === 1
+        ? distanceMeters(vs[0], cur) <= thM
+        : vs.some((v, i) => pointToSegmentMeters(cur, v, vs[(i + 1) % vs.length]) <= thM)
+      if (onBody) {
+        dragOrigin = cur
+        dragBase = vs.map((p) => [p[0], p[1]] as LngLat)
+        st.setDragging(-1)
         map.getCanvas().style.cursor = 'grabbing'
       }
     }
 
     const onMouseUp = () => {
       const st = useInteraction.getState()
+      dragOrigin = null
+      dragBase = null
       if (st.edit?.dragging != null) st.setDragging(null)
       if (st.edit) map.getCanvas().style.cursor = 'pointer'
     }
@@ -472,8 +549,13 @@ function setup(map: MlMap): () => void {
         map.dragPan.disable()          // 绘制时左键用于落点，禁用拖拽平移
       } else {
         map.dragPan.enable()
-        map.getCanvas().style.cursor = st.edit ? 'pointer' : ''
-        if (!st.edit && !st.points.length) setPreview([])
+        // 2026-09-20：编辑态里「正在拖手柄 / 拖整块」时**禁用地图拖拽**，否则拖图元会把地图一起拖走
+        if (st.edit?.dragging != null) map.dragPan.disable()
+        map.getCanvas().style.cursor = st.edit ? (st.edit.dragging != null ? 'grabbing' : 'pointer') : ''
+        // 2026-09-20：进/出编辑态也要重画，否则"点图元进编辑"时**顶点手柄不显示**
+        //   （旧逻辑只在 `!st.edit` 时才 refresh，编辑态恰恰被跳过）
+        if (st.edit) refresh()
+        else if (!st.points.length) setPreview([])
       }
       if (!isDrawing(st.mode) && !st.edit) refresh()
     })
@@ -500,6 +582,7 @@ const InteractionOverlay: React.FC = () => {
   const measurement = useInteraction((s) => s.measurement)
   const edit = useInteraction((s) => s.edit)
   const hint = useInteraction((s) => s.hint)
+  const snapHint = useInteraction((s) => s.snapHint)
 
   if (mode === 'none' && !measurement && !edit && !hint) return null
 
@@ -539,6 +622,7 @@ const InteractionOverlay: React.FC = () => {
           {points.length > 0 && <span>：已落 {points.length} 点</span>}
           {live && <span style={{ color: '#22d3ee' }}>　{live}</span>}
           <div style={{ color: '#8fb0cc', fontSize: 11 }}>{steps.join('　·　')}</div>
+          {snapHint && <div style={{ color: '#f59e0b', fontSize: 11 }}>吸附到 {snapHint.label ?? '已有点'}</div>}
         </div>
       )}
       {!isDrawing(mode) && measurement && (
@@ -557,7 +641,8 @@ const InteractionOverlay: React.FC = () => {
       {edit && !isDrawing(mode) && (
         <div>
           <b style={{ color: '#7fd1ff' }}>编辑中</b>：{edit.kind}:{edit.id}
-          <span>　拖动顶点手柄即可修改</span>
+          <span>　拖顶点手柄改形状；按住图元身上可拖整块移动</span>
+          {snapHint && <div style={{ color: '#f59e0b', fontSize: 11 }}>吸附到 {snapHint.label ?? '已有点'}</div>}
           <div style={{ color: '#8fb0cc', fontSize: 11 }}>Esc 退出编辑</div>
         </div>
       )}

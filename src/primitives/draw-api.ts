@@ -45,6 +45,22 @@ export interface DrawCommon {
   text?: string
   /** 文本框样式（见 `TextStyle`）；不给用 `'tag'` */
   textStyle?: TextStyle
+  /**
+   * **标签锚点走哪条规则**（2026-09-21 新增；**可选，不给 = 与改造前一致**）。
+   *
+   * 需求（原话）："**规划航线的标签，放到航线中间，而非末尾**" —— 而且**只改航线**。
+   *   · 不传 / `'topRight'`：标签挂在图元"最右上"那个点外侧（**默认口径**，面 / 圆 / 点 / 其它线都用它）；
+   *   · `'mid'`：标签挂在**折线中点**（按累计长度取一半处）外侧 —— 宿主画"规划航线"时传这个。
+   *
+   * 为什么要做成**图元自带的提示**而不是模块里按名字认：识别"哪条是规划航线"是**业务知识**，
+   * 属于宿主；模块只提供"这条线想把标签放中间"这个通用能力（换名字/换语言都不受影响）。
+   */
+  textAnchor?: 'topRight' | 'mid'
+  /**
+   * **标签锚点从图元往外延多少屏幕像素**（可选；不给 = 模块默认 `ANCHOR_OUT_PX`）。
+   * 例：规划航线用 9（比默认的 6 再往外一点），见 `text-layer.ts` 的 `anchorOf`。
+   */
+  anchorOutPx?: number
 }
 
 /** 文本框的几种样式（用户第 3 条："可以绑定几种文本框的方式"） */
@@ -163,6 +179,20 @@ function bindText(ownerKind: PrimitiveKind, ownerId: string, spec: DrawCommon): 
   textBindings.set(id, { id, ownerKind, ownerId, text: t.text, style: t.style })
 }
 
+/**
+ * **图元自带的"标签怎么放"提示**（2026-09-21 新增；两个字段都可选）。
+ *
+ * 会写进图元字段，供 `text-layer` 的 `anchorOf` 读取 —— 与 `textStyle` 同一套路：
+ * "这条线的标签想放中间""往外多延几像素"属于**这个图元的显示属性**，
+ * 写在图元上就跟着它一起被导出 / 存档 / 复制，不需要第二份登记表。
+ */
+function anchorHintsOf(spec: DrawCommon): Record<string, unknown> {
+  return {
+    ...(spec.textAnchor ? { textAnchor: spec.textAnchor } : {}),
+    ...(spec.anchorOutPx !== undefined ? { anchorOutPx: spec.anchorOutPx } : {}),
+  }
+}
+
 /** 图元被删时把它的文本一起删（联动，避免"图没了字还在"） */
 function dropText(ownerId: string): void {
   textBindings.delete(`${ownerId}:text`)
@@ -198,6 +228,8 @@ function line(spec: LineSpec): string | null {
     widthPx: spec.widthPx, visible: spec.visible,
     // 航线名称进 `label` 字段（`lyr-route-label` 原生画；`name` 是"不渲染"的数据字段）
     ...nativeTextOf('route', spec),
+    // 标签怎么放（可选提示；规划航线用 `textAnchor: 'mid'` + `anchorOutPx: 9`）
+    ...anchorHintsOf(spec),
   })
   bindText('route', id, spec)
   return id

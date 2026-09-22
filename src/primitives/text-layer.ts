@@ -158,7 +158,7 @@ function topRightVertex(pts: [number, number][]): Anchor | null {
  * 与"标签挂在点的右上"这条既有行为一致）。
  * 距离按**屏幕像素**算，复用本文件已有的 `pxToDeg`（不引第二套换算口径）。
  */
-function extendOutward(anchor: Anchor, pts: [number, number][], lat: number, zoom: number): Anchor {
+function extendOutward(anchor: Anchor, pts: [number, number][], lat: number, zoom: number, px = ANCHOR_OUT_PX): Anchor {
   if (!pts.length) return anchor
   let maxSum = -Infinity, minSum = Infinity
   let trLng = anchor.lng, trLat = anchor.lat, blLng = anchor.lng, blLat = anchor.lat
@@ -171,12 +171,41 @@ function extendOutward(anchor: Anchor, pts: [number, number][], lat: number, zoo
   const vy = trLat - blLat
   const len = Math.hypot(vx, vy)
   if (len < 1e-12) return anchor                       // 退化（单点）→ 方向无意义，锚点即该点
-  const { dLat, dLng } = pxToDeg(ANCHOR_OUT_PX, lat, zoom)
+  const { dLat, dLng } = pxToDeg(px, lat, zoom)
   // 归一化后各轴分别按"1 px 对应多少度"缩放 —— 与标签框的偏移用同一套换算
   return {
     lng: anchor.lng + (vx / len) * dLng,
     lat: anchor.lat + (vy / len) * dLat,
   }
+}
+
+/**
+ * **折线中点**（按累计长度取一半处的点）—— 2026-09-21 需求方要"规划航线的标签放到航线中间"。
+ * 实现与上一轮删掉的那版 `lineMidpoint()` 同口径（按分段长度累加），只是现在由
+ * `item.textAnchor === 'mid'` 显式点名才用（**默认仍是"最右上顶点"**，别的线不受影响）。
+ */
+function lineMidpoint(pts: [number, number][]): Anchor | null {
+  if (pts.length < 2) return null
+  const seg: number[] = []
+  let total = 0
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+    seg.push(d)
+    total += d
+  }
+  if (total === 0) return { lng: pts[0][0], lat: pts[0][1] }
+  let acc = 0
+  for (let i = 0; i < seg.length; i++) {
+    if (acc + seg[i] >= total / 2) {
+      const t = (total / 2 - acc) / (seg[i] || 1)
+      return {
+        lng: pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t,
+        lat: pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t,
+      }
+    }
+    acc += seg[i]
+  }
+  return { lng: pts[pts.length - 1][0], lat: pts[pts.length - 1][1] }
 }
 
 /**
@@ -206,19 +235,24 @@ function ellipseTopRight(item: Record<string, unknown>): Anchor | null {
 }
 
 /**
- * 锚点规则（**2026-09-21 改版**；原规则是"外接框右上角 / 折线中点"，需求方否掉了）：
- *   · **面（area）**：取**多边形顶点里"最右上"的那一个**，再往外延 `ANCHOR_OUT_PX`
- *   · **圆/椭圆（shape）**：取**右上 45° 在圆上的点**，再往外延（它没有顶点）
- *   · **航线（route）**：取**折线顶点里"最右上"的那一个**，再往外延（不再用中点）
- *   · **点类（label/drone/target/cluster/symbol）**：就是点本身，再往外延（点自身即其"最右上顶点"）
+ * 锚点规则（**2026-09-21 改版；同日再补一条"规划航线走中点"**）：
+ *   · **面（area）**：取**多边形顶点里"最右上"的那一个**，再往外延 `outPx`
+ *   · **圆/椭圆（shape）**：取**右上 45° 在圆上的点**（它没有顶点）
+ *   · **航线（route）**：**默认**取折线顶点里"最右上"的那一个；
+ *     若该图元显式声明了 `textAnchor: 'mid'`（宿主画规划航线时传的），则取**折线中点** ——
+ *     需求方："**规划航线的标签，放到航线中间，而非末尾**"，且**只改航线**。
+ *   · **点类（label/drone/target/cluster/symbol）**：就是点本身，再往外延
  *
- * `zoom` 只用于"往外延"那一步（像素换算）；不给就跳过延展、只给锚点。
+ * 外延像素：默认 `ANCHOR_OUT_PX`（6），图元可用 `anchorOutPx` 覆盖（规划航线用 9）。
+ * `zoom` 只用于外延那一步（像素换算）。
  */
 function anchorOf(kind: PrimitiveKind, item: Record<string, unknown>, zoom: number): Anchor | null {
+  // 图元自带的两个显示提示（都是可选；不传 = 与改造前完全一致）
+  const outPx = typeof item.anchorOutPx === 'number' ? item.anchorOutPx : ANCHOR_OUT_PX
   if (kind === 'area') {
     const pts = ((item.polygon as [number, number][]) ?? []).slice()
     const tr = topRightVertex(pts)
-    return tr ? extendOutward(tr, pts, tr.lat, zoom) : null
+    return tr ? extendOutward(tr, pts, tr.lat, zoom, outPx) : null
   }
   if (kind === 'shape') {
     const tr = ellipseTopRight(item)
@@ -228,14 +262,22 @@ function anchorOf(kind: PrimitiveKind, item: Record<string, unknown>, zoom: numb
   }
   if (kind === 'route') {
     const pts = ((item.points as [number, number][]) ?? []).slice()
+    if (item.textAnchor === 'mid') {
+      const mid = lineMidpoint(pts)
+      if (!mid) return null
+      // 外延方向：拿**首段两端点**当"最左下 → 最右上"的参照（与其它图元同一套外延逻辑），
+      // 于是标签落在中点外侧，**不压在线身正中**。
+      const seg = pts.length >= 2 ? [pts[0], pts[1]] : pts
+      return extendOutward(mid, seg, mid.lat, zoom, outPx)
+    }
     const tr = topRightVertex(pts)
-    return tr ? extendOutward(tr, pts, tr.lat, zoom) : null
+    return tr ? extendOutward(tr, pts, tr.lat, zoom, outPx) : null
   }
   const lng = item.lng as number | undefined
   const lat = item.lat as number | undefined
   if (typeof lng !== 'number' || typeof lat !== 'number') return null
   // 点类：点自己就是"最右上顶点"，`pts` 只含它一个 → 延展方向退化，锚点即点本身（与改造前一致）
-  return extendOutward({ lng, lat }, [[lng, lat]], lat, zoom)
+  return extendOutward({ lng, lat }, [[lng, lat]], lat, zoom, outPx)
 }
 
 // ---------------------------------------------------------------- 底块形状（圆角矩形）

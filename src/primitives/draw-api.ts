@@ -316,19 +316,33 @@ function remove(id: string): boolean {
  * **改一个图元上绑定的文本内容**（宿主做"点文本可改"用）。
  *
  * 绑定关系在模块里，所以改文本也该走模块 —— 宿主不需要知道文本框是怎么画的。
- * @returns 该图元**原本就有**绑定文本才返回 true；没有绑定则不动（要新增请用 `bindTextTo`）
+ * @returns 写成功返回 true；图元不在图上返回 false（**不新建**）。2026-10-03 起：没有绑定登记也能改（兜底见函数内）。
  */
 export function setBoundText(ownerId: string, text: string): boolean {
-  const b = textBindings.get(`${ownerId}:text`)
-  if (!b) return false
-  textBindings.set(b.id, { ...b, text })
-  // ★ 文字由原生 symbol 图层画，改字必须落到图元字段上（否则只有登记表变了、画面不动）
-  const field = NATIVE_TEXT_FIELD[b.ownerKind]
-  if (field) MapDraw.patch(b.ownerKind, ownerId, { [field]: text })
+  const key = `${ownerId}:text`
+  const b = textBindings.get(key)
+  if (b) {
+    textBindings.set(key, { ...b, text })
+    // 文字由原生 symbol 图层画，改字必须落到图元字段上（否则只有登记表变了、画面不动）
+    const field = NATIVE_TEXT_FIELD[b.ownerKind]
+    if (field) MapDraw.patch(b.ownerKind, ownerId, { [field]: text })
+    return true
+  }
+  // ★ 2026-10-03 修 bug（需求方："编辑态，点击任务区，修改任务区名称，确认后地图上图元依旧没有修改"）：
+  //   原来**没有绑定登记就直接 return false**，而计划文件（`MapDraw.load()`）与自动长宽 / 半径
+  //   （宿主直接 `MapDraw.add()`）落库的图元都没有登记 → 改字被静默丢掉、画面不动。
+  //   兜底：跨类找到它 → 把字写进**原生文字字段**（画面立刻变）→ **补一条绑定登记**
+  //   （之后的 `boundTextOf` / 取消还原 / 改样式才正常）。
+  const hit = findGeometry(ownerId)
+  if (!hit) return false                        // 图元不在图上 → 不新建（与原语义一致）
+  const field = NATIVE_TEXT_FIELD[hit.kind]
+  if (field && !MapDraw.patch(hit.kind, ownerId, { [field]: text })) return false
+  const raw = hit.item.textStyle
+  const style: TextStyle = raw === 'card' || raw === 'callout' || raw === 'tag' ? raw : 'tag'
+  textBindings.set(key, { id: key, ownerKind: hit.kind, ownerId, text, style })
   return true
 }
 
-/** **给一个已存在的图元补一条绑定文本**（先建图元、后配文字时用） */
 export function bindTextTo(ownerKind: PrimitiveKind, ownerId: string, text: string, style: TextStyle = 'tag'): boolean {
   const exists = MapDraw.list(ownerKind).some((x) => (x as { id: string }).id === ownerId)
   if (!exists) return false
@@ -342,14 +356,22 @@ export function bindTextTo(ownerKind: PrimitiveKind, ownerId: string, text: stri
 /** **改一个图元上文本框的样式**（角标 / 卡片 / 引线标注）—— 用户在界面上切换用 */
 export function setBoundStyle(ownerId: string, style: TextStyle): boolean {
   const b = textBindings.get(`${ownerId}:text`)
-  if (!b) return false
-  textBindings.set(b.id, { ...b, style })
-  const field = NATIVE_TEXT_FIELD[b.ownerKind]
-  if (field) MapDraw.patch(b.ownerKind, ownerId, { textStyle: style })
+  if (b) {
+    textBindings.set(b.id, { ...b, style })
+    const field = NATIVE_TEXT_FIELD[b.ownerKind]
+    if (field) MapDraw.patch(b.ownerKind, ownerId, { textStyle: style })
+    return true
+  }
+  // ★ 2026-10-03 兜底：与 `setBoundText` 同款（计划快照 / 自动长宽画的图元没有登记）
+  //   这里**只把 `textStyle` 写进图元字段**、**不补登记**：不造"空文本的绑定"，
+  //   让 `boundTextOf` 的 null 语义保持干净。
+  const hit = findGeometry(ownerId)
+  if (!hit) return false
+  const field = NATIVE_TEXT_FIELD[hit.kind]
+  if (field && !MapDraw.patch(hit.kind, ownerId, { textStyle: style })) return false
   return true
 }
 
-/** 读一个图元绑定的文本框样式（没绑定返回 null） */
 export function boundStyleOf(ownerId: string): TextStyle | null {
   return textBindings.get(`${ownerId}:text`)?.style ?? null
 }

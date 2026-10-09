@@ -318,19 +318,19 @@ export class LayerManager {
     const showGroup = p === 'T1' || p === 'T2' || p === 'T3'
     const showLink = p !== 'T0' && p !== 'T1'
     const on: string[] = []
-    // 与阶段无关的图层（任务区域、标注、航线/图形区、**标签**）始终按分组开关显示
-    on.push(...GROUP_LAYERS.area, ...GROUP_LAYERS.mark, ...GROUP_LAYERS.route, ...GROUP_LAYERS.annulus, ...GROUP_LAYERS.symbol, ...GROUP_LAYERS.text)
+    // 与阶段无关的图层（任务区域、标注、航线/图形区、**标签**、无人机、航迹）始终按分组开关显示
+    //
+    // ★ 2026-10-09 需求方："无人机与航迹全程可见（所有阶段都要显示），这只是数据输入-绘制流程，
+    //   不应该屏蔽"：把 uav / track 两组从阶段规则里摘出来，与标签同款，
+    //   只受图层面板的分组开关控制（分组开关那一路见 applyVisibility，与本函数是两个正交维度）。
+    //   改前留档（别再改回去）：uav 组 if (recon || p === 'T7')，T3 起才显示，T0 屏上只剩标签；
+    //   track 组 if (recon && this.scenario === 'scenario-2')，场景一永远不显示航迹。
+    //   另注：位图图标层与圆点层同属 uav 组、实线与虚线轨迹同属 track 组，必须一起进集合，
+    //   否则会出现"分组开关点得动但画面没反应"（该图层被阶段规则关着）。
+    on.push(...GROUP_LAYERS.area, ...GROUP_LAYERS.mark, ...GROUP_LAYERS.route, ...GROUP_LAYERS.annulus, ...GROUP_LAYERS.symbol, ...GROUP_LAYERS.text,
+             LYR.uav, LYR.uavGlow, LYR.uavIcon, LYR.uavLabel, LYR.track, LYR.trackDashed)
     if (recon) on.push(LYR.scan)
     if (recon || p === 'T7') on.push(LYR.trail)
-    // 无人机位置：侦察阶段起显示（T3–T7）。
-    // 修正：此前该组从未被阶段规则打开，导致 setUavs 灌入的实时位置不显示
-    //（与《技术需求文档》MAP-02「集群动态图层」的要求不符）。
-    // 注意：新增的位图图标层与圆点层**同属 uav 组**，必须一起进这个集合——否则会出现
-    // "分组开关点得动但画面没反应"（该图层被阶段规则关着）这种自相矛盾的状态。
-    if (recon || p === 'T7') on.push(LYR.uav, LYR.uavGlow, LYR.uavIcon, LYR.uavLabel)
-    // 轨迹：轨迹是"目标轨迹回放"语义，模块既有规则只在 scenario-2 的侦察阶段显示。
-    // 新增的虚线轨迹层与实线层同属 track 组，必须一起进集合（理由同上）。
-    if (recon && this.scenario === 'scenario-2') on.push(LYR.track, LYR.trackDashed)
     if (showTarget) on.push(LYR.target, LYR.targetLabel, LYR.targetGlow, LYR.pulse)
     if (showLink) on.push(LYR.link, LYR.linkGlow)
     if (showGroup) on.push(LYR.group, LYR.groupLabel)
@@ -566,13 +566,10 @@ export class LayerManager {
         'text-anchor': 'bottom-left',
         'text-allow-overlap': false,      // 避让：重叠的标签由渲染器自动隐藏（M2-DRAW-11）
         'text-ignore-placement': false,
-        // ★ 底色块：见 textLayerOf 里的说明（无人机标签默认走 tag 样式那张图）
-        'icon-image': ['match', ['get', 'textStyle'], 'card', 'textbox-card', 'callout', 'textbox-callout', 'textbox-tag'],
-        'icon-text-fit': 'both',
-        'icon-text-fit-padding': [0, 3, 0, 3],
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': true,
-        'icon-padding': 0,
+        // ★ 2026-10-09：**删掉残留的 sprite 底块**（`textbox-tag/card/callout`） 2026-09-18 文字退役
+        //   （text-field 置空）时漏删了这几个 icon-* 属性：它们会在每台无人机位置画一张 sprite 圆角框，
+        //   而 PNG 图标恰好画在它上面，于是看起来就像"图标被框住"（需求方实测就是这个框）。
+        //   现在本层既无文字也无图标，不再画任何东西；层与 id 保留不动（别处引用不必改）。
       },
       paint: { 'text-color': '#9fb3d1', 'text-halo-color': 'rgba(5,10,20,.85)', 'text-halo-width': 1.6 },
     })
@@ -600,13 +597,10 @@ export class LayerManager {
         'text-anchor': 'bottom-left',
         'text-allow-overlap': false,      // 避让：重叠的标签由渲染器自动隐藏（M2-DRAW-11）
         'text-ignore-placement': false,
-        // ★ 底色块：见 textLayerOf 里的说明
-        'icon-image': ['match', ['get', 'textStyle'], 'card', 'textbox-card', 'callout', 'textbox-callout', 'textbox-tag'],
-        'icon-text-fit': 'both',
-        'icon-text-fit-padding': [0, 3, 0, 3],
-        'icon-allow-overlap': true,
-        'icon-ignore-placement': true,
-        'icon-padding': 0,
+        // ★ 2026-10-09：**删掉残留的 sprite 底块**（`textbox-tag/card/callout`） 2026-09-18 文字退役
+        //   （text-field 置空）时漏删了这几个 icon-* 属性：它们会在每个图元位置画一张 sprite 圆角框，
+        //   看起来就像"PNG 图标被框住"（需求方实测）。现在本层既无文字也无图标，不再画任何东西；
+        //   层与 id 保留不动（GROUP_LAYERS / 阶段可见性 / LayerManager 的引用都不必改）。
       },
       paint: { 'text-color': ['coalesce', ['get', 'color'], '#cfe3f5'], 'text-halo-color': 'rgba(5,10,20,.85)', 'text-halo-width': 1.8 },
     })

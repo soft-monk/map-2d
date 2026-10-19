@@ -97,6 +97,8 @@ const LYR = {
    */
   textBoxFill: 'lyr-text-box-fill',
   textBoxLine: 'lyr-text-box-line',
+  /** ★ 2026-10-09 实验层：任务区标签改用 EM=48 那套字形单独画一层（用于对比观感） */
+  textTest: 'lyr-text-test48',
   /**
    * ★ 2026-09-18 新增：**选中高亮**（两层：线 + 点圆环）。
    *   不进任何图层分组 —— 它跟着"选中态"走，不该被图层开关或一键全隐影响。
@@ -152,7 +154,7 @@ const GROUP_LAYERS: Record<LayerGroup, string[]> = {
   annulus: [LYR.annulus, LYR.annulusDashed],
   symbol: [LYR.symbol, LYR.symbolLabel],
   // ★ 标签：统一文字层 + 底块两层（关掉它 = 图上所有文字与底块一起消失）
-  text: [LYR.text, LYR.textBoxFill, LYR.textBoxLine],
+  text: [LYR.text, LYR.textBoxFill, LYR.textBoxLine, LYR.textTest],
 }
 
 export const ALL_LAYER_GROUPS = Object.keys(GROUP_LAYERS) as LayerGroup[]
@@ -181,6 +183,8 @@ export const ALL_LAYER_GROUPS = Object.keys(GROUP_LAYERS) as LayerGroup[]
 function textLayer(): never {
   return {
     id: LYR.text, type: 'symbol', source: SRC.text,
+    // ★ 2026-10-09 实验：任务区那条标签由 textLayerTest48（EM=48 字形）单独画，这里排除掉
+    filter: ['!=', ['get', 'text'], '任务区'],
     layout: {
       'text-field': ['coalesce', ['get', 'text'], ''],
       'text-font': MAP_OPTIONS.textFont,
@@ -210,6 +214,40 @@ function textLayer(): never {
       'text-color': '#ffffff',
       'text-halo-color': '#000000',
       'text-halo-width': 1.0,
+    },
+  } as never
+}
+
+/**
+ * ★ 2026-10-09 **实验层**（需求方："1+5 先实验，你改一个固定的图元，任务区吧"）。
+ *
+ * 目的：让**只有「任务区」这一条标签**用新字形（① EM 24→48 / RADIUS 8→16）+ 新 halo（⑤ 1.0→0.8），
+ *   其它标签保持现状，方便需求方直接比对观感。
+ *
+ * 为什么必须单开一层：MapLibre 的 `text-font` 是**图层常量**（不能逐要素给），
+ *   所以"只改一个图元的字体"只能靠"另起一层 + filter 命中那一条"。
+ * 实验定论后的去处：① 把主文字层换成 48 那套字形（删本层）；② 或整段撤掉。
+ */
+function textLayerTest48(): never {
+  return {
+    id: LYR.textTest, type: 'symbol', source: SRC.text,
+    // 只命中"文本正好是 任务区"的那一条
+    filter: ['==', ['get', 'text'], '任务区'],
+    layout: {
+      'text-field': ['coalesce', ['get', 'text'], ''],
+      'text-font': ['MapApp Bold'],   // ★ 栈名含 bold  本机 TinySDF 用 900 字重（笔画更饱满）
+      'text-anchor': 'center',
+      'text-offset': [0, 0],
+      'text-size': 24,          // ★ 本机 TinySDF 自带 isDoubleResolution（2x 密度，metrics 已换算回 24em） 标准 24 就是同尺寸
+      'text-max-width': 40,
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
+      'text-padding': 0,
+    },
+    paint: {
+      'text-color': '#ffffff',
+      'text-halo-color': '#000000',
+      'text-halo-width': 0.6,   // ★ ⑤：比主层 1.0 细一点，少吃细笔画
     },
   } as never
 }
@@ -722,6 +760,7 @@ export class LayerManager {
     // 顺序要紧：底块先加 → 落在文字**下面**；两者都加在最后 → 落在所有几何**上面**。
     for (const l of textBoxLayers()) map.addLayer(l)
     map.addLayer(textLayer())
+    map.addLayer(textLayerTest48())   // ★ 2026-10-09 实验层（任务区标签：EM=48 字形 + halo 0.8）
     // ★ 选中高亮（线 + 点圆环）：加在最后 → 压在所有图元之上；不进任何分组，只跟着选中态走
     map.addLayer({
       id: LYR.selLine, type: 'line', source: SRC.selection,

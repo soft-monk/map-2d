@@ -35,7 +35,18 @@ export const MAP_OPTIONS = {
    *   「附着：标签清晰度现状与候选改法」；需求方当时决定**本轮放弃、后续再改**。
    *   动这一行之前，务必先读那段备注里的"代价 ②"（混排被拆成两块）与导出影响。
    */
-  localIdeographFontFamily: '',
+  // ★ 2026-10-09 **实验**（需求方："是否方案a测试一下任务区"）：临时打开本机字形生成，
+  //   用来对比「本机 TinySDF（按显示尺寸栅格化 + 2x 密度）」与「离线 PBF 字形」的清晰度。
+  //    这是**地图级开关**：打开后**所有汉字**都改走本机生成（拉丁/数字仍走 PBF）；
+  //      本仓历史上实测过「中英混排被拆成两块」（见上方  的完整记录），本次要一并观察这个副作用。
+  //   实验定论后：满意就讨论全量方案（含混排解法）；不满意就把本行改回 空串。
+  localIdeographFontFamily: 'Microsoft YaHei',
+
+  /**
+   * ★ 2026-10-09 需求方**明确否决**的路线（记档：别再提议、别再重启）：
+   *   「HTML 文字浮层」= 用 DOM/CSS 画标签（本仓 `src/ui/TextOverlay.tsx` 就是那条路的半成品）。
+   *   否决原话：「方案b，完全否决，这个是被否决的路线」。该文件仅作留档，不参与渲染。
+   */
 
   /**
    * **字形 PBF 的地址**（`{fontstack}` / `{range}` 由 MapLibre 填）。
@@ -72,6 +83,13 @@ export const MAP_OPTIONS = {
    * 数组里的名字会被 `{fontstack}` 用逗号拼起来，多字体回落可以写多项。
    */
   textFont: ['MapApp'],
+  /**
+   * ★ 2026-10-09 实验（需求方："1+5 先实验，改一个固定的图元，任务区"）：
+   *   第二套字形栈 = `apps/web/public/fonts/MapAppTest/`（EM=48 / RADIUS=16 / EDGE=0.825，
+   *   只含「任/务/区」三个字），只给**任务区那一条标签**用（见 LayerManager 的 textLayerTest48）。
+   *   实验定论后：要么并进 textFont（全量重生成 84 段），要么把本项与实验层一起删掉。
+   */
+  textFontTest: ['MapAppTest'],
 
   /** 是否在地图右下角显示底图版权署名 */
   showAttribution: false,

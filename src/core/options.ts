@@ -42,6 +42,10 @@ export const MAP_OPTIONS = {
   //   实验定论后：满意就讨论全量方案（含混排解法）；不满意就把本行改回 空串。
   localIdeographFontFamily: 'Microsoft YaHei',
 
+  // 2026-10-19: core/localGlyphs.ts extends the local TinySDF path to every printable
+  // BMP glyph requested by map labels. This keeps mixed CJK/Latin label strings in one
+  // glyph source; non-label layers, styles, anchors, sizes, halos and data are untouched.
+
   /**
    * ★ 2026-10-09 需求方**明确否决**的路线（记档：别再提议、别再重启）：
    *   「HTML 文字浮层」= 用 DOM/CSS 画标签（本仓 `src/ui/TextOverlay.tsx` 就是那条路的半成品）。

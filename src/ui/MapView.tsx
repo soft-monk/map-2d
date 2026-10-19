@@ -13,6 +13,7 @@ import { bindSelection } from '../core/selection'
 import { mapInstance, layersReady } from '../core/instance'
 import { registerMapInstance, unregisterMapInstance, DEFAULT_INSTANCE_ID } from '../core/instanceRegistry'
 import { MAP_OPTIONS } from '../core/options'
+import { enableLocalGlyphsForLabelText } from '../core/localGlyphs'
 import { tileMaxZoomFromOptions } from '../core/tilePrecision'
 import { applyControls } from '../core/controls'
 import { injectControlStyle, MAP_CONTAINER_CLASS } from '../core/style'
@@ -224,6 +225,9 @@ export const MapView: React.FC<MapViewProps> = ({ data, children, instanceId = D
       touchPitch: false,
       maxPitch: 0,
     })
+
+    // 2026-10-19: force all label characters through local TinySDF; other layers untouched.
+    enableLocalGlyphsForLabelText(map)
     mapInstance.current = map
     registerMapInstance(instanceId, map)   // 多实例注册并置为当前实例（M2-NFR-08）
 
@@ -330,6 +334,7 @@ export const MapView: React.FC<MapViewProps> = ({ data, children, instanceId = D
     // 有注册底图时以注册表的当前项为准（basemaps.switch 的语义就是"整幅替换"）
     const style = activeBasemap ? buildStyle(basemaps.toConfig(activeBasemap, config)) : buildStyle(config)
     map.setStyle(style as never)
+    enableLocalGlyphsForLabelText(map)
     const onStyled = () => {
       // setStyle 会清空所有 source/layer，需要重建并重放绘图 API 的图元
       if (!map.getSource('src-area')) {
